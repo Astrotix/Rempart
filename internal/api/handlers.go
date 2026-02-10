@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/ztna-sovereign/ztna/internal/auth"
@@ -57,6 +59,10 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("POST /api/connector/register", s.handleConnectorRegister)
 	mux.HandleFunc("POST /api/connector/heartbeat", s.handleConnectorHeartbeat)
 	mux.HandleFunc("POST /api/pop/heartbeat", s.handlePoPHeartbeat)
+
+	// Agent downloads (public, no auth required)
+	mux.HandleFunc("GET /api/downloads/agent/{platform}", s.handleDownloadAgent)
+	mux.HandleFunc("GET /api/downloads/list", s.handleListDownloads)
 
 	// Protected routes (JWT required)
 	protected := http.NewServeMux()
@@ -887,6 +893,64 @@ func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
 		"total_connectors":  len(connectors),
 		"online_connectors": onlineConnectors,
 	})
+}
+
+// --- Agent Downloads ---
+
+var agentPlatforms = map[string]struct {
+	Filename    string
+	ContentType string
+	DisplayName string
+}{
+	"windows": {Filename: "ztna-agent-windows-amd64.exe", ContentType: "application/octet-stream", DisplayName: "Windows (64-bit)"},
+	"linux":   {Filename: "ztna-agent-linux-amd64", ContentType: "application/octet-stream", DisplayName: "Linux (64-bit)"},
+	"macos":   {Filename: "ztna-agent-macos-amd64", ContentType: "application/octet-stream", DisplayName: "macOS Intel"},
+	"macos-arm": {Filename: "ztna-agent-macos-arm64", ContentType: "application/octet-stream", DisplayName: "macOS Apple Silicon"},
+}
+
+func (s *Server) handleDownloadAgent(w http.ResponseWriter, r *http.Request) {
+	platform := r.PathValue("platform")
+
+	info, ok := agentPlatforms[platform]
+	if !ok {
+		jsonError(w, http.StatusBadRequest, "Plateforme inconnue. Utilisez: windows, linux, macos, macos-arm")
+		return
+	}
+
+	filePath := "/var/lib/ztna/downloads/" + info.Filename
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		s.Logger.Printf("Fichier agent introuvable: %s: %v", filePath, err)
+		jsonError(w, http.StatusNotFound, "Binaire agent non disponible pour cette plateforme")
+		return
+	}
+
+	w.Header().Set("Content-Type", info.ContentType)
+	w.Header().Set("Content-Disposition", "attachment; filename="+info.Filename)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+	w.Write(data)
+}
+
+func (s *Server) handleListDownloads(w http.ResponseWriter, r *http.Request) {
+	downloads := []map[string]string{}
+	for key, info := range agentPlatforms {
+		filePath := "/var/lib/ztna/downloads/" + info.Filename
+		available := "false"
+		size := "0"
+		if stat, err := os.Stat(filePath); err == nil {
+			available = "true"
+			size = fmt.Sprintf("%d", stat.Size())
+		}
+		downloads = append(downloads, map[string]string{
+			"platform":    key,
+			"name":        info.DisplayName,
+			"filename":    info.Filename,
+			"available":   available,
+			"size":        size,
+			"download_url": fmt.Sprintf("/api/downloads/agent/%s", key),
+		})
+	}
+	jsonResponse(w, http.StatusOK, downloads)
 }
 
 // --- Helpers ---

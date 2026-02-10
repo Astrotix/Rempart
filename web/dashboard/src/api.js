@@ -114,6 +114,13 @@ const api = {
   // Audit Logs
   listAuditLogs: () =>
     fetch(`${API_BASE}/audit-logs`, { headers: getHeaders() }).then(handleResponse),
+
+  // Agent Downloads
+  listDownloads: () =>
+    fetch(`${API_BASE}/downloads/list`).then(handleResponse),
+
+  getDownloadURL: (platform) =>
+    `${API_BASE}/downloads/agent/${platform}`,
 };
 
 export default api;

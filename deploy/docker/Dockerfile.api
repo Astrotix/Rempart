@@ -7,12 +7,22 @@ COPY go.sum* ./
 RUN go mod download
 
 COPY . .
+
+# Build API
 RUN CGO_ENABLED=0 GOOS=linux go build -o /ztna-api ./cmd/api
+
+# Cross-compile agent binaries for all platforms
+RUN mkdir -p /binaries
+RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o /binaries/ztna-agent-windows-amd64.exe ./cmd/agent
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /binaries/ztna-agent-linux-amd64 ./cmd/agent
+RUN CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o /binaries/ztna-agent-macos-amd64 ./cmd/agent
+RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o /binaries/ztna-agent-macos-arm64 ./cmd/agent
 
 # Runtime
 FROM alpine:3.20
 RUN apk --no-cache add ca-certificates tzdata
 COPY --from=builder /ztna-api /usr/local/bin/ztna-api
+COPY --from=builder /binaries /var/lib/ztna/downloads
 
 EXPOSE 8080
 ENTRYPOINT ["ztna-api"]

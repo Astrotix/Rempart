@@ -198,6 +198,7 @@ function Dashboard({ token, onLogout }) {
         {page === 'users' && <UsersPage users={users} onRefresh={refreshAll} />}
         {page === 'pops' && <PoPsPage pops={pops} onRefresh={refreshAll} />}
         {page === 'connectors' && <ConnectorsPage connectors={connectors} pops={pops} onRefresh={refreshAll} />}
+        {page === 'agents' && <AgentsPage />}
         {page === 'policies' && <PoliciesPage policies={policies} connectors={connectors} users={users} onRefresh={refreshAll} />}
         {page === 'logs' && <AuditLogsPage logs={auditLogs} />}
       </main>
@@ -212,6 +213,7 @@ function Sidebar({ page, setPage, onLogout, stats }) {
     { key: 'users', icon: '\u{1F465}', label: 'Utilisateurs' },
     { key: 'pops', icon: '\u{1F310}', label: 'PoPs' },
     { key: 'connectors', icon: '\u{1F50C}', label: 'Connecteurs' },
+    { key: 'agents', icon: '\u{1F4BB}', label: 'Agent Client' },
     { key: 'policies', icon: '\u{1F6E1}\uFE0F', label: 'Politiques' },
     { key: 'logs', icon: '\u{1F4CB}', label: "Logs d'audit" },
   ];
@@ -976,6 +978,140 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
   );
 }
 
+// --- Agents Page ---
+function AgentsPage() {
+  const [downloads, setDownloads] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const controlPlaneIP = window.location.hostname;
+
+  useEffect(() => {
+    api.listDownloads()
+      .then(data => setDownloads(data))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+
+  const formatSize = (bytes) => {
+    const mb = parseInt(bytes) / (1024 * 1024);
+    return mb >= 1 ? `${mb.toFixed(1)} MB` : `${(parseInt(bytes) / 1024).toFixed(0)} KB`;
+  };
+
+  const platformIcons = {
+    windows: '🪟',
+    linux: '🐧',
+    macos: '🍎',
+    'macos-arm': '🍎',
+  };
+
+  const platformOrder = ['windows', 'linux', 'macos', 'macos-arm'];
+
+  const sortedDownloads = [...downloads].sort(
+    (a, b) => platformOrder.indexOf(a.platform) - platformOrder.indexOf(b.platform)
+  );
+
+  return (
+    <div className="page">
+      <div className="page-header">
+        <h2>Agent Client ZTNA</h2>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20, background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Comment ca marche ?</h3>
+        <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+          <p style={{ marginBottom: 8 }}>
+            <strong>1.</strong> Creez un <strong>utilisateur</strong> dans la section Utilisateurs
+          </p>
+          <p style={{ marginBottom: 8 }}>
+            <strong>2.</strong> Creez une <strong>politique</strong> dans la section Politiques pour autoriser cet utilisateur a acceder a un connecteur
+          </p>
+          <p style={{ marginBottom: 8 }}>
+            <strong>3.</strong> <strong>Telechargez</strong> l&apos;agent ci-dessous et lancez-le avec les identifiants de l&apos;utilisateur
+          </p>
+          <p style={{ marginBottom: 0 }}>
+            <strong>4.</strong> L&apos;agent se connecte automatiquement au reseau ZTNA. Aucun token a copier !
+          </p>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 style={{ fontSize: 16, marginBottom: 16 }}>Telechargements</h3>
+        {loading ? (
+          <p className="text-muted">Chargement...</p>
+        ) : downloads.length === 0 ? (
+          <p className="text-muted">Aucun binaire disponible. Reconstruisez le conteneur API.</p>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+            {sortedDownloads.map(dl => (
+              <div key={dl.platform} className="card" style={{
+                padding: 20,
+                textAlign: 'center',
+                opacity: dl.available === 'true' ? 1 : 0.5,
+                border: dl.platform === 'windows' ? '2px solid var(--accent-blue)' : '1px solid var(--border)',
+              }}>
+                <div style={{ fontSize: 40, marginBottom: 8 }}>{platformIcons[dl.platform] || '💻'}</div>
+                <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 4 }}>{dl.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12 }}>
+                  {dl.available === 'true' ? formatSize(dl.size) : 'Non disponible'}
+                </div>
+                {dl.available === 'true' ? (
+                  <a
+                    href={api.getDownloadURL(dl.platform)}
+                    className="btn btn-primary"
+                    style={{ display: 'inline-block', textDecoration: 'none' }}
+                    download
+                  >
+                    Telecharger
+                  </a>
+                ) : (
+                  <button className="btn" disabled>Non disponible</button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Utilisation (Windows)</h3>
+        <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+          <p style={{ marginBottom: 12 }}>
+            <strong>Prerequis :</strong> Installez <a href="https://www.wireguard.com/install/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-blue)' }}>WireGuard pour Windows</a>
+          </p>
+          <p style={{ marginBottom: 8 }}>Ouvrez un terminal <strong>en Administrateur</strong> (PowerShell ou CMD) et lancez :</p>
+          <div className="code-block" style={{ fontSize: 12 }}>
+            <code>
+              ztna-agent-windows-amd64.exe ^<br />
+              &nbsp;&nbsp;--email <span style={{ color: 'var(--accent-orange)' }}>votre-email@entreprise.fr</span> ^<br />
+              &nbsp;&nbsp;--password <span style={{ color: 'var(--accent-orange)' }}>VotreMotDePasse</span> ^<br />
+              &nbsp;&nbsp;--control-plane <span style={{ color: 'var(--accent-blue)' }}>http://{controlPlaneIP}:8080</span>
+            </code>
+          </div>
+        </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Utilisation (Linux / macOS)</h3>
+        <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+          <p style={{ marginBottom: 8 }}>Rendez l&apos;agent executable puis lancez-le avec <code>sudo</code> :</p>
+          <div className="code-block" style={{ fontSize: 12 }}>
+            <code>
+              chmod +x ztna-agent-linux-amd64<br />
+              sudo ./ztna-agent-linux-amd64 \<br />
+              &nbsp;&nbsp;--email <span style={{ color: 'var(--accent-orange)' }}>votre-email@entreprise.fr</span> \<br />
+              &nbsp;&nbsp;--password <span style={{ color: 'var(--accent-orange)' }}>VotreMotDePasse</span> \<br />
+              &nbsp;&nbsp;--control-plane <span style={{ color: 'var(--accent-blue)' }}>http://{controlPlaneIP}:8080</span>
+            </code>
+          </div>
+        </div>
+      </div>
+
+      <div className="card info-banner">
+        <strong>Zero Trust :</strong> Sans politique d&apos;acces configuree, le tunnel sera etabli mais aucun trafic ne sera autorise. Creez une politique dans la section &quot;Politiques&quot; pour autoriser l&apos;utilisateur a acceder aux ressources du connecteur.
+      </div>
+    </div>
+  );
+}
+
 // --- Policies Page ---
 function PoliciesPage({ policies, connectors, users, onRefresh }) {
   const [showForm, setShowForm] = useState(false);
@@ -1030,66 +1166,7 @@ function PoliciesPage({ policies, connectors, users, onRefresh }) {
         <strong>Zero Trust :</strong> Par defaut, TOUT le trafic est bloque. Seules les politiques explicites autorisent l'acces.
       </div>
 
-      <div className="card" style={{ marginBottom: 20, background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-        <h3 style={{ fontSize: 16, marginBottom: 12 }}>📖 Guide de test du client</h3>
-        <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-          <p style={{ marginBottom: 12 }}><strong>Étape 1 : Créer un utilisateur</strong></p>
-          <p style={{ marginBottom: 8, paddingLeft: 16 }}>1. Va dans "Utilisateurs" → "+ Nouvel utilisateur"</p>
-          <p style={{ marginBottom: 8, paddingLeft: 16 }}>2. Crée un utilisateur avec email et mot de passe</p>
 
-          <p style={{ marginBottom: 12, marginTop: 16 }}><strong>Étape 2 : Créer une politique d'accès</strong></p>
-          <p style={{ marginBottom: 8, paddingLeft: 16 }}>1. Crée une politique ci-dessus :</p>
-          <ul style={{ marginLeft: 32, marginBottom: 8 }}>
-            <li><strong>Source :</strong> Sélectionne l'utilisateur créé</li>
-            <li><strong>Destination :</strong> Sélectionne le connecteur (ex: OVH)</li>
-            <li><strong>Réseaux :</strong> Ex: <code>192.168.75.0/24</code> (réseau exposé par le connecteur)</li>
-            <li><strong>Ports :</strong> Ex: <code>22,80,443</code> ou <code>*</code> pour tous</li>
-            <li><strong>Action :</strong> ALLOW</li>
-          </ul>
-
-          <p style={{ marginBottom: 12, marginTop: 16 }}><strong>Étape 3 : Obtenir le token JWT</strong></p>
-          <div className="code-block" style={{ marginBottom: 12, fontSize: 11 }}>
-            <code>
-              curl -X POST http://176.136.202.205:8080/api/auth/login \<br />
-              &nbsp;&nbsp;-H &quot;Content-Type: application/json&quot; \<br />
-              &nbsp;&nbsp;-d &apos;{`{"email": "ton-email@example.com", "password": "ton-mot-de-passe"}`}&apos;<br />
-              <br />
-              # Réponse : {`{"token": "eyJhbGc..."}`}
-            </code>
-          </div>
-
-          <p style={{ marginBottom: 12, marginTop: 16 }}><strong>Étape 4 : Compiler et lancer l'agent client</strong></p>
-          <div className="code-block" style={{ marginBottom: 12, fontSize: 11 }}>
-            <code>
-              # Sur ton poste (Windows/Mac/Linux)<br />
-              cd Rempart<br />
-              export PATH=/usr/local/go/bin:$PATH  # Si Go 1.23 installé<br />
-              go build -o ztna-agent ./cmd/agent<br />
-              <br />
-              # Lancer l&apos;agent avec le token<br />
-              sudo ./ztna-agent \<br />
-              &nbsp;&nbsp;--token &lt;TOKEN_JWT_DE_L_ETAPE_3&gt; \<br />
-              &nbsp;&nbsp;--control-plane http://176.136.202.205:8080 \<br />
-              &nbsp;&nbsp;--device &quot;Mon-PC&quot;
-            </code>
-          </div>
-
-          <p style={{ marginBottom: 12, marginTop: 16 }}><strong>Étape 5 : Tester la connexion</strong></p>
-          <p style={{ marginBottom: 8, paddingLeft: 16 }}>Une fois l'agent connecté, tu peux accéder aux ressources du site via le tunnel WireGuard :</p>
-          <div className="code-block" style={{ marginBottom: 12, fontSize: 11 }}>
-            <code>
-              # Exemple : accéder à un serveur dans le réseau 192.168.75.0/24<br />
-              ping 192.168.75.10<br />
-              ssh user@192.168.75.10<br />
-              curl http://192.168.75.10:80
-            </code>
-          </div>
-
-          <p style={{ marginBottom: 8, marginTop: 16, fontSize: 12, color: 'var(--accent-orange)', fontWeight: 600 }}>
-            ⚠️ Important : Sans politique, l'accès sera refusé (Zero Trust). Crée toujours la politique AVANT de tester !
-          </p>
-        </div>
-      </div>
 
       {showForm && (
         <div className="card form-card">

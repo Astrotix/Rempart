@@ -1,6 +1,6 @@
 // Command agent is the ZTNA client agent that runs on the user's device.
-// It authenticates via OIDC, receives a WireGuard config, and establishes
-// a tunnel to the nearest PoP.
+// It authenticates with email/password, receives a WireGuard config, and
+// establishes a tunnel to the nearest PoP.
 package main
 
 import (
@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -16,16 +17,27 @@ import (
 	"runtime"
 	"syscall"
 	"time"
-
-	"github.com/ztna-sovereign/ztna/internal/wireguard"
 )
 
 // AgentConfig holds the client agent configuration.
 type AgentConfig struct {
-	ControlPlaneURL string `json:"control_plane_url"`
-	Token           string `json:"token"`      // JWT token from OIDC login
-	DeviceName      string `json:"device_name"`
-	WGInterface     string `json:"wg_interface"`
+	ControlPlaneURL string
+	Email           string
+	Password        string
+	Token           string // JWT obtained after login
+	DeviceName      string
+	WGInterface     string
+}
+
+// LoginResponse is returned by /api/auth/login.
+type LoginResponse struct {
+	Token string `json:"token"`
+	User  struct {
+		ID    string `json:"id"`
+		Email string `json:"email"`
+		Name  string `json:"name"`
+		Role  string `json:"role"`
+	} `json:"user"`
 }
 
 // RegistrationResponse is the response from the Control Plane after registration.
@@ -36,16 +48,30 @@ type RegistrationResponse struct {
 }
 
 func main() {
-	controlPlane := flag.String("control-plane", "http://localhost:8080", "Control Plane URL")
-	token := flag.String("token", "", "JWT auth token (from OIDC login)")
-	deviceName := flag.String("device", "", "Device name")
-	wgInterface := flag.String("wg-interface", "wg-ztna", "WireGuard interface name")
+	controlPlane := flag.String("control-plane", "http://localhost:8080", "URL du Control Plane")
+	email := flag.String("email", "", "Email de l'utilisateur")
+	password := flag.String("password", "", "Mot de passe de l'utilisateur")
+	deviceName := flag.String("device", "", "Nom de l'appareil (defaut: hostname)")
+	wgInterface := flag.String("wg-interface", "wg-ztna", "Nom de l'interface WireGuard")
 	flag.Parse()
 
-	if *token == "" {
-		fmt.Println("Usage: ztna-agent --token <JWT_TOKEN> --control-plane <URL>")
+	if *email == "" || *password == "" {
+		fmt.Println("╔══════════════════════════════════════════════╗")
+		fmt.Println("║    ZTNA Sovereign - Agent Client             ║")
+		fmt.Println("╚══════════════════════════════════════════════╝")
 		fmt.Println()
-		fmt.Println("Get your token by logging in at: <control-plane-url>/api/auth/login")
+		fmt.Println("Usage:")
+		fmt.Println("  ztna-agent --email <EMAIL> --password <MOT_DE_PASSE> --control-plane <URL>")
+		fmt.Println()
+		fmt.Println("Options:")
+		fmt.Println("  --email          Email de votre compte ZTNA")
+		fmt.Println("  --password       Mot de passe de votre compte")
+		fmt.Println("  --control-plane  URL du Control Plane (defaut: http://localhost:8080)")
+		fmt.Println("  --device         Nom de cet appareil (defaut: hostname)")
+		fmt.Println("  --wg-interface   Nom de l'interface WireGuard (defaut: wg-ztna)")
+		fmt.Println()
+		fmt.Println("Exemple:")
+		fmt.Printf("  ztna-agent --email admin@monentreprise.fr --password MonMotDePasse --control-plane http://176.136.202.205:8080\n")
 		os.Exit(1)
 	}
 
@@ -54,42 +80,63 @@ func main() {
 		*deviceName = hostname
 	}
 
-	logger := log.New(os.Stdout, "[Agent] ", log.LstdFlags|log.Lshortfile)
+	logger := log.New(os.Stdout, "[ZTNA Agent] ", log.LstdFlags)
 
-	logger.Println("==============================================")
-	logger.Println("  ZTNA Sovereign - Client Agent")
-	logger.Printf("  Device: %s (%s)", *deviceName, runtime.GOOS)
-	logger.Printf("  Control Plane: %s", *controlPlane)
-	logger.Println("==============================================")
+	logger.Println("══════════════════════════════════════════════")
+	logger.Println("  ZTNA Sovereign - Agent Client")
+	logger.Printf("  Appareil : %s (%s/%s)", *deviceName, runtime.GOOS, runtime.GOARCH)
+	logger.Printf("  Control Plane : %s", *controlPlane)
+	logger.Printf("  Utilisateur : %s", *email)
+	logger.Println("══════════════════════════════════════════════")
 
 	config := AgentConfig{
 		ControlPlaneURL: *controlPlane,
-		Token:           *token,
+		Email:           *email,
+		Password:        *password,
 		DeviceName:      *deviceName,
 		WGInterface:     *wgInterface,
 	}
 
-	// Step 1: Register with Control Plane
-	logger.Println("Registering with Control Plane...")
+	// Step 1: Authenticate with email/password
+	logger.Println("[1/3] Authentification en cours...")
+	loginResp, err := login(config)
+	if err != nil {
+		logger.Fatalf("Echec authentification : %v", err)
+	}
+	config.Token = loginResp.Token
+	logger.Printf("  Authentifie : %s (%s)", loginResp.User.Name, loginResp.User.Email)
+
+	// Step 2: Register agent and get WireGuard config
+	logger.Println("[2/3] Enregistrement de l'agent...")
 	regResp, err := registerAgent(config)
 	if err != nil {
-		logger.Fatalf("Registration failed: %v", err)
+		logger.Fatalf("Echec enregistrement : %v", err)
 	}
+	logger.Printf("  Agent ID : %s", regResp.AgentID)
+	logger.Printf("  IP Tunnel : %s", regResp.TunnelIP)
 
-	logger.Printf("Registered! Agent ID: %s, Tunnel IP: %s", regResp.AgentID, regResp.TunnelIP)
-
-	// Step 2: Apply WireGuard configuration
-	logger.Println("Configuring WireGuard tunnel...")
+	// Step 3: Apply WireGuard configuration
+	logger.Println("[3/3] Configuration du tunnel WireGuard...")
 	if err := applyWireGuardConfig(config.WGInterface, regResp.ConfigINI, logger); err != nil {
-		logger.Printf("WARNING: WireGuard setup failed: %v", err)
-		logger.Println("Config that should be applied manually:")
+		logger.Printf("ATTENTION : Echec configuration WireGuard : %v", err)
+		logger.Println("Configuration a appliquer manuellement :")
+		logger.Println("---")
 		logger.Println(regResp.ConfigINI)
+		logger.Println("---")
+		if runtime.GOOS == "windows" {
+			logger.Println("Assurez-vous que WireGuard pour Windows est installe :")
+			logger.Println("  https://www.wireguard.com/install/")
+		}
 	} else {
-		logger.Println("WireGuard tunnel established!")
+		logger.Println("  Tunnel WireGuard etabli !")
 	}
 
-	// Step 3: Keep alive and monitor
-	logger.Println("Connected to ZTNA network. Press Ctrl+C to disconnect.")
+	logger.Println()
+	logger.Println("══════════════════════════════════════════════")
+	logger.Println("  CONNECTE au reseau ZTNA")
+	logger.Printf("  IP Tunnel : %s", regResp.TunnelIP)
+	logger.Println("  Appuyez sur Ctrl+C pour deconnecter")
+	logger.Println("══════════════════════════════════════════════")
 
 	go monitorConnection(config, logger)
 
@@ -99,9 +146,53 @@ func main() {
 	<-sigChan
 
 	// Cleanup
-	logger.Println("Disconnecting...")
+	logger.Println()
+	logger.Println("Deconnexion...")
 	teardownWireGuard(config.WGInterface, logger)
-	logger.Println("Disconnected from ZTNA network")
+	logger.Println("Deconnecte du reseau ZTNA. A bientot !")
+}
+
+// login authenticates with the Control Plane and returns a JWT token.
+func login(config AgentConfig) (*LoginResponse, error) {
+	reqBody := map[string]string{
+		"email":    config.Email,
+		"password": config.Password,
+	}
+
+	data, err := json.Marshal(reqBody)
+	if err != nil {
+		return nil, err
+	}
+
+	url := fmt.Sprintf("%s/api/auth/login", config.ControlPlaneURL)
+	resp, err := http.Post(url, "application/json", bytes.NewReader(data))
+	if err != nil {
+		return nil, fmt.Errorf("impossible de contacter le Control Plane: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("email ou mot de passe incorrect")
+	}
+	if resp.StatusCode == http.StatusForbidden {
+		return nil, fmt.Errorf("compte desactive, contactez votre administrateur")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("erreur serveur (code %d): %s", resp.StatusCode, string(body))
+	}
+
+	var result LoginResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("reponse invalide du serveur: %w", err)
+	}
+
+	if result.Token == "" {
+		return nil, fmt.Errorf("pas de token recu du serveur")
+	}
+
+	return &result, nil
 }
 
 // registerAgent sends a registration request to the Control Plane.
@@ -120,17 +211,22 @@ func registerAgent(config AgentConfig) (*RegistrationResponse, error) {
 	url := fmt.Sprintf("%s/api/agent/register", config.ControlPlaneURL)
 	resp, err := http.Post(url, "application/json", bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, fmt.Errorf("impossible de contacter le Control Plane: %w", err)
 	}
 	defer resp.Body.Close()
 
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("session expiree, relancez l'agent")
+	}
 	if resp.StatusCode != http.StatusCreated {
-		return nil, fmt.Errorf("registration failed with status %d", resp.StatusCode)
+		return nil, fmt.Errorf("erreur enregistrement (code %d): %s", resp.StatusCode, string(body))
 	}
 
 	var result RegistrationResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, fmt.Errorf("failed to parse response: %w", err)
+	if err := json.Unmarshal(body, &result); err != nil {
+		return nil, fmt.Errorf("reponse invalide: %w", err)
 	}
 
 	return &result, nil
@@ -138,6 +234,10 @@ func registerAgent(config AgentConfig) (*RegistrationResponse, error) {
 
 // applyWireGuardConfig applies the WireGuard configuration on the local system.
 func applyWireGuardConfig(iface string, configINI string, logger *log.Logger) error {
+	if configINI == "" {
+		return fmt.Errorf("aucune configuration WireGuard recue (aucun PoP disponible ?)")
+	}
+
 	switch runtime.GOOS {
 	case "linux":
 		return applyWireGuardLinux(iface, configINI)
@@ -146,53 +246,63 @@ func applyWireGuardConfig(iface string, configINI string, logger *log.Logger) er
 	case "darwin":
 		return applyWireGuardDarwin(iface, configINI, logger)
 	default:
-		return fmt.Errorf("unsupported OS: %s", runtime.GOOS)
+		return fmt.Errorf("OS non supporte: %s", runtime.GOOS)
 	}
 }
 
 func applyWireGuardLinux(iface string, configINI string) error {
 	configPath := fmt.Sprintf("/etc/wireguard/%s.conf", iface)
 	if err := os.WriteFile(configPath, []byte(configINI), 0600); err != nil {
-		return err
+		return fmt.Errorf("impossible d'ecrire la config: %w (lancez avec sudo)", err)
 	}
 	cmd := exec.Command("wg-quick", "up", iface)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("wg-quick up failed: %s: %w", string(output), err)
+		return fmt.Errorf("wg-quick up echoue: %s: %w", string(output), err)
 	}
 	return nil
 }
 
 func applyWireGuardWindows(iface string, configINI string, logger *log.Logger) error {
 	// On Windows, use the WireGuard tunnel service
-	configPath := fmt.Sprintf(`C:\ProgramData\WireGuard\%s.conf`, iface)
-	if err := os.MkdirAll(`C:\ProgramData\WireGuard`, 0755); err != nil {
-		logger.Printf("Could not create WireGuard config dir: %v", err)
+	configDir := `C:\ProgramData\WireGuard`
+	configPath := fmt.Sprintf(`%s\%s.conf`, configDir, iface)
+	if err := os.MkdirAll(configDir, 0755); err != nil {
+		logger.Printf("Impossible de creer le dossier WireGuard: %v", err)
 	}
 	if err := os.WriteFile(configPath, []byte(configINI), 0600); err != nil {
-		return fmt.Errorf("failed to write config: %w", err)
+		return fmt.Errorf("impossible d'ecrire la config: %w (lancez en Administrateur)", err)
 	}
+
+	logger.Printf("  Config ecrite dans : %s", configPath)
 
 	// Try to use wireguard.exe CLI
 	cmd := exec.Command("wireguard.exe", "/installtunnelservice", configPath)
 	if output, err := cmd.CombinedOutput(); err != nil {
-		logger.Printf("WireGuard service install failed: %s", string(output))
-		return fmt.Errorf("wireguard.exe not found or failed. Install WireGuard for Windows")
+		// Fallback: try wg-quick if available
+		cmd2 := exec.Command("wg-quick", "up", configPath)
+		if output2, err2 := cmd2.CombinedOutput(); err2 != nil {
+			logger.Printf("wireguard.exe echoue: %s", string(output))
+			logger.Printf("wg-quick echoue: %s", string(output2))
+			logger.Println()
+			logger.Println("Importez manuellement la config dans WireGuard pour Windows :")
+			logger.Printf("  Fichier : %s", configPath)
+			return fmt.Errorf("WireGuard non trouve. Installez-le depuis https://www.wireguard.com/install/")
+		}
 	}
 	return nil
 }
 
 func applyWireGuardDarwin(iface string, configINI string, logger *log.Logger) error {
-	// On macOS, use wg-quick via Homebrew
 	configPath := fmt.Sprintf("/usr/local/etc/wireguard/%s.conf", iface)
 	_ = os.MkdirAll("/usr/local/etc/wireguard", 0755)
 	if err := os.WriteFile(configPath, []byte(configINI), 0600); err != nil {
-		return err
+		return fmt.Errorf("impossible d'ecrire la config: %w", err)
 	}
 	cmd := exec.Command("wg-quick", "up", iface)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("wg-quick up failed: %s: %w", string(output), err)
+		return fmt.Errorf("wg-quick up echoue: %s: %w", string(output), err)
 	}
 	return nil
 }
@@ -203,27 +313,30 @@ func teardownWireGuard(iface string, logger *log.Logger) {
 	case "linux", "darwin":
 		exec.Command("wg-quick", "down", iface).Run()
 	case "windows":
-		configPath := fmt.Sprintf(`C:\ProgramData\WireGuard\%s.conf`, iface)
 		exec.Command("wireguard.exe", "/uninstalltunnelservice", iface).Run()
+		configPath := fmt.Sprintf(`C:\ProgramData\WireGuard\%s.conf`, iface)
 		os.Remove(configPath)
 	}
-	logger.Println("WireGuard tunnel torn down")
+	logger.Println("Tunnel WireGuard ferme")
 }
 
 // monitorConnection periodically checks tunnel health.
 func monitorConnection(config AgentConfig, logger *log.Logger) {
-	ticker := time.NewTicker(60 * time.Second)
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	_ = wireguard.RenderINI // Keep import alive
-
 	for range ticker.C {
-		// Check if WireGuard interface is up
-		if runtime.GOOS == "linux" {
+		switch runtime.GOOS {
+		case "linux":
 			cmd := exec.Command("wg", "show", config.WGInterface)
 			if err := cmd.Run(); err != nil {
-				logger.Println("WARNING: WireGuard tunnel appears down, attempting reconnect...")
-				// In production: implement reconnection logic
+				logger.Println("ATTENTION : Tunnel WireGuard semble inactif")
+			}
+		case "windows":
+			// Check if the interface exists
+			cmd := exec.Command("netsh", "interface", "show", "interface", config.WGInterface)
+			if err := cmd.Run(); err != nil {
+				logger.Println("ATTENTION : Interface WireGuard non trouvee")
 			}
 		}
 	}
