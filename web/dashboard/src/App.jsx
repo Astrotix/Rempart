@@ -603,6 +603,19 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
     setError('');
   };
 
+  const handleShowInstructions = async (conn) => {
+    try {
+      // Récupérer le connecteur complet avec son token depuis l'API
+      const fullConn = await api.getConnector(conn.id);
+      setCreatedConnector(fullConn);
+      setStep('install');
+    } catch (err) {
+      // Si l'API ne renvoie pas le token, utiliser le connecteur de la liste
+      setCreatedConnector(conn);
+      setStep('install');
+    }
+  };
+
   const copyToClipboard = async (text) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -878,7 +891,7 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
                           <div style={{ display: 'flex', gap: 8 }}>
                             <button 
                               className="btn btn-small" 
-                              onClick={() => { setCreatedConnector(conn); setStep('install'); }}
+                              onClick={() => handleShowInstructions(conn)}
                               title="Voir les instructions d'installation"
                             >
                               📋 Instructions
@@ -894,11 +907,14 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
                           </div>
                         </td>
                       </tr>
-                      {conn.status !== 'online' && conn.token && (
+                      {conn.token && !conn.token_used && (
                         <tr>
                           <td colSpan="7" style={{ padding: '12px 16px', background: 'rgba(59, 130, 246, 0.05)', borderTop: 'none' }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                              <span style={{ fontSize: 12, color: 'var(--accent-orange)', fontWeight: 600 }}>⏳ En attente de connexion — Lancez cette commande sur le serveur du site :</span>
+                              <span style={{ fontSize: 12, color: 'var(--accent-orange)', fontWeight: 600 }}>
+                                {conn.status === 'online' ? '✅ Connecté — ' : '⏳ En attente de connexion — '}
+                                Lancez cette commande sur le serveur du site :
+                              </span>
                             </div>
                             <div className="code-block" style={{ position: 'relative', margin: 0 }}>
                               <button 

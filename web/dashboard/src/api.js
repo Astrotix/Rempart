@@ -85,6 +85,9 @@ const api = {
       body: JSON.stringify(conn),
     }).then(handleResponse),
 
+  getConnector: (id) =>
+    fetch(`${API_BASE}/connectors/${id}`, { headers: getHeaders() }).then(handleResponse),
+
   deleteConnector: (id) =>
     fetch(`${API_BASE}/connectors/${id}`, {
       method: 'DELETE',
