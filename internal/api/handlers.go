@@ -84,11 +84,17 @@ func (s *Server) SetupRoutes() http.Handler {
 	protected.HandleFunc("GET /api/agent/config", s.handleGetAgentConfig)
 
 	// Connector {id} routes - register in main mux BEFORE mounting sub-mux to avoid pattern matching conflicts
-	// Register GET and DELETE separately with explicit method patterns
-	getConnectorHandler := s.JWTManager.AuthMiddleware(http.HandlerFunc(s.handleGetConnector))
-	deleteConnectorHandler := s.JWTManager.AuthMiddleware(http.HandlerFunc(s.handleDeleteConnector))
-	mux.HandleFunc("GET /api/connectors/{id}", getConnectorHandler.ServeHTTP)
-	mux.HandleFunc("DELETE /api/connectors/{id}", deleteConnectorHandler.ServeHTTP)
+	// Use a single handler that checks the method manually because ServeMux doesn't handle method patterns well with path params
+	connectorIDHandler := s.JWTManager.AuthMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			s.handleDeleteConnector(w, r)
+		} else if r.Method == http.MethodGet {
+			s.handleGetConnector(w, r)
+		} else {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	}))
+	mux.Handle("/api/connectors/{id}", connectorIDHandler)
 
 	// Apply auth middleware to protected routes
 	mux.Handle("/api/", s.JWTManager.AuthMiddleware(protected))
