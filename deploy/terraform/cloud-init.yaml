@@ -1,0 +1,88 @@
+#cloud-config
+# ZTNA Sovereign PoP - Cloud-Init Configuration
+# Automatically configures a new PoP server on OVHcloud
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - wireguard
+  - wireguard-tools
+  - curl
+  - jq
+  - fail2ban
+  - ufw
+
+write_files:
+  - path: /etc/sysctl.d/99-ztna.conf
+    content: |
+      # Enable IP forwarding for ZTNA tunnel routing
+      net.ipv4.ip_forward = 1
+      net.ipv6.conf.all.forwarding = 1
+      # Optimize network performance
+      net.core.rmem_max = 26214400
+      net.core.wmem_max = 26214400
+      net.core.rmem_default = 1048576
+      net.core.wmem_default = 1048576
+
+  - path: /opt/ztna/pop-config.json
+    content: |
+      {
+        "pop_id": "${pop_id}",
+        "pop_name": "${pop_name}",
+        "control_plane_url": "${control_plane_url}",
+        "wg_interface": "wg0",
+        "wg_port": ${wireguard_port},
+        "heartbeat_sec": 30,
+        "location": "${pop_location}"
+      }
+
+  - path: /etc/systemd/system/ztna-pop.service
+    content: |
+      [Unit]
+      Description=ZTNA Sovereign PoP Service
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      User=root
+      ExecStart=/opt/ztna/ztna-pop \
+        --pop-id=${pop_id} \
+        --control-plane=${control_plane_url} \
+        --wg-interface=wg0 \
+        --wg-port=${wireguard_port} \
+        --heartbeat=30
+      Restart=always
+      RestartSec=5
+      LimitNOFILE=65535
+
+      [Install]
+      WantedBy=multi-user.target
+
+runcmd:
+  # Apply sysctl settings
+  - sysctl --system
+
+  # Configure firewall
+  - ufw default deny incoming
+  - ufw default allow outgoing
+  - ufw allow 22/tcp comment 'SSH'
+  - ufw allow ${wireguard_port}/udp comment 'WireGuard'
+  - ufw allow 443/tcp comment 'HTTPS Management'
+  - echo "y" | ufw enable
+
+  # Create ZTNA directory
+  - mkdir -p /opt/ztna
+
+  # Download PoP binary (placeholder - replace with actual download URL)
+  - echo "PoP binary would be downloaded here from your CI/CD pipeline"
+  # - curl -sL https://releases.ztna-sovereign.fr/latest/ztna-pop-linux-amd64 -o /opt/ztna/ztna-pop
+  # - chmod +x /opt/ztna/ztna-pop
+
+  # Enable and start the service (once binary is available)
+  # - systemctl daemon-reload
+  # - systemctl enable ztna-pop
+  # - systemctl start ztna-pop
+
+  - echo "ZTNA PoP ${pop_name} (${pop_id}) initialized at ${pop_location}"

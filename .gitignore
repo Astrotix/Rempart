@@ -1,0 +1,41 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+ztna-api
+ztna-agent
+ztna-connector
+ztna-pop
+
+# Go
+/vendor/
+go.sum
+
+# Node
+node_modules/
+dist/
+.vite/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Config secrets
+*.tfvars
+!*.tfvars.example
+config.yaml
+.env
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# OS
+.DS_Store
+Thumbs.db

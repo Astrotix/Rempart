@@ -1,0 +1,16 @@
+# ZTNA Sovereign - Site Connector
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /ztna-connector ./cmd/connector
+
+# Runtime (needs wireguard-tools for tunnel)
+FROM alpine:3.20
+RUN apk --no-cache add ca-certificates wireguard-tools iptables
+COPY --from=builder /ztna-connector /usr/local/bin/ztna-connector
+
+ENTRYPOINT ["ztna-connector"]

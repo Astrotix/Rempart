@@ -1,0 +1,17 @@
+# ZTNA Sovereign - PoP Service
+FROM golang:1.25-alpine AS builder
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+RUN CGO_ENABLED=0 GOOS=linux go build -o /ztna-pop ./cmd/pop
+
+# Runtime (needs wireguard-tools)
+FROM alpine:3.20
+RUN apk --no-cache add ca-certificates wireguard-tools iptables
+COPY --from=builder /ztna-pop /usr/local/bin/ztna-pop
+
+EXPOSE 51820/udp
+ENTRYPOINT ["ztna-pop"]

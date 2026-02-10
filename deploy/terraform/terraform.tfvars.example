@@ -1,0 +1,37 @@
+# ZTNA Sovereign - OVHcloud Configuration
+# Copy this file to terraform.tfvars and fill in your values
+
+# OVHcloud API credentials
+# Get them at: https://api.ovh.com/createToken/
+ovh_application_key    = "your-application-key"
+ovh_application_secret = "your-application-secret"
+ovh_consumer_key       = "your-consumer-key"
+
+# OVHcloud Public Cloud project ID
+# Find it in the OVH Manager > Public Cloud > Your Project
+ovh_service_name = "your-project-id"
+
+# SSH public key for server access
+ssh_public_key = "ssh-rsa AAAA... your-key"
+
+# Control Plane URL
+control_plane_url = "https://api.ztna-sovereign.fr"
+
+# PoP configuration (customize locations and sizes)
+pop_configs = {
+  gravelines = {
+    name   = "pop-gravelines"
+    region = "GRA11"
+    flavor = "d2-4"  # 2 vCPU, 4 GB RAM - ~10€/mois
+  }
+  strasbourg = {
+    name   = "pop-strasbourg"
+    region = "SBG5"
+    flavor = "d2-4"
+  }
+  roubaix = {
+    name   = "pop-roubaix"
+    region = "GRA11"
+    flavor = "d2-4"
+  }
+}

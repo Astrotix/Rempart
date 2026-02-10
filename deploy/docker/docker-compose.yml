@@ -1,0 +1,57 @@
+# ZTNA Sovereign - Docker Compose (Development)
+# Starts the Control Plane + PostgreSQL + Dashboard
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ztna
+      POSTGRES_PASSWORD: ztna-secret
+      POSTGRES_DB: ztna_sovereign
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ztna"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  api:
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile.api
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=ztna
+      - DB_PASS=ztna-secret
+      - DB_NAME=ztna_sovereign
+    command: >
+      ztna-api
+        --db-host=postgres
+        --db-port=5432
+        --db-user=ztna
+        --db-pass=ztna-secret
+        --db-name=ztna_sovereign
+        --jwt-secret=dev-secret-change-in-production
+        --host=0.0.0.0
+        --port=8080
+
+  dashboard:
+    build:
+      context: ../../web/dashboard
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
