@@ -752,7 +752,7 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
             <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>2. Cloner et compiler le connecteur</h4>
             <div className="code-block" style={{ position: 'relative' }}>
               <button 
-                onClick={() => copyToClipboard(`git clone https://github.com/Astrotix/Rempart.git\ncd Rempart\ngo build -o ztna-connector ./cmd/connector`)}
+                onClick={() => copyToClipboard(`git clone https://github.com/Astrotix/Rempart.git\ncd Rempart\ngo mod tidy\ngo build -o ztna-connector ./cmd/connector`)}
                 style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
               >
                 Copier
@@ -760,6 +760,7 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
               <code>
                 git clone https://github.com/Astrotix/Rempart.git<br />
                 cd Rempart<br />
+                go mod tidy<br />
                 go build -o ztna-connector ./cmd/connector
               </code>
             </div>
