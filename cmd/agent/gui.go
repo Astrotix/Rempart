@@ -47,6 +47,7 @@ type ConnectResponse struct {
 	Email        string `json:"email"`
 	Device       string `json:"device"`
 	ControlPlane string `json:"control_plane"`
+	Warning      string `json:"warning,omitempty"` // Warning if WireGuard setup failed
 }
 
 // NewGUIServer creates a new GUI server.
@@ -182,9 +183,11 @@ func (s *GUIServer) handleConnect(w http.ResponseWriter, r *http.Request) {
 	s.logger.Printf("Agent enregistré: ID=%s, IP=%s", regResp.AgentID, regResp.TunnelIP)
 
 	// Step 3: Apply WireGuard config
+	var wgWarning string
 	if regResp.ConfigINI != "" {
 		if err := applyWireGuardConfig(config.WGInterface, regResp.ConfigINI, s.logger); err != nil {
 			s.logger.Printf("WireGuard: %v", err)
+			wgWarning = err.Error()
 			// Don't fail - the tunnel might need manual setup but connection is established
 		} else {
 			s.logger.Println("Tunnel WireGuard établi !")
@@ -210,6 +213,7 @@ func (s *GUIServer) handleConnect(w http.ResponseWriter, r *http.Request) {
 		Email:        req.Email,
 		Device:       s.deviceName,
 		ControlPlane: cp,
+		Warning:      wgWarning,
 	})
 }
 

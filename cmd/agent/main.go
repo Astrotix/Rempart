@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -240,6 +241,52 @@ func applyWireGuardLinux(iface string, configINI string) error {
 }
 
 func applyWireGuardWindows(iface string, configINI string, logger *log.Logger) error {
+	// Check if WireGuard is installed
+	wgPaths := []string{
+		`C:\Program Files\WireGuard\wireguard.exe`,
+		`C:\Program Files (x86)\WireGuard\wireguard.exe`,
+	}
+	wgFound := false
+	var wgPath string
+	for _, path := range wgPaths {
+		if _, err := os.Stat(path); err == nil {
+			wgFound = true
+			wgPath = path
+			break
+		}
+	}
+
+	// Also check if wg-quick is in PATH
+	if !wgFound {
+		if path, err := exec.LookPath("wg-quick"); err == nil {
+			wgFound = true
+			wgPath = path
+		}
+	}
+
+	if !wgFound {
+		// Try to install automatically
+		if runtime.GOOS == "windows" {
+			if err := installWireGuardAutomatically(logger); err != nil {
+				return fmt.Errorf("WireGuard n'est pas installé et l'installation automatique a échoué: %v. Installez-le manuellement depuis https://www.wireguard.com/install/", err)
+			}
+			// Re-check after installation
+			if !isWireGuardInstalled() {
+				return fmt.Errorf("WireGuard installé mais non détecté. Redémarrez l'agent.")
+			}
+			// Update wgPath
+			for _, path := range wgPaths {
+				if _, err := os.Stat(path); err == nil {
+					wgFound = true
+					wgPath = path
+					break
+				}
+			}
+		} else {
+			return fmt.Errorf("WireGuard n'est pas installé. Installez-le depuis https://www.wireguard.com/install/")
+		}
+	}
+
 	configDir := `C:\ProgramData\WireGuard`
 	configPath := fmt.Sprintf(`%s\%s.conf`, configDir, iface)
 	if err := os.MkdirAll(configDir, 0755); err != nil {
@@ -248,18 +295,32 @@ func applyWireGuardWindows(iface string, configINI string, logger *log.Logger) e
 	if err := os.WriteFile(configPath, []byte(configINI), 0600); err != nil {
 		return fmt.Errorf("impossible d'écrire la config: %w (lancez en Administrateur)", err)
 	}
-	logger.Printf("Config WireGuard: %s", configPath)
+	logger.Printf("Config WireGuard écrite: %s", configPath)
 
-	// Try wireguard.exe service
-	cmd := exec.Command("wireguard.exe", "/installtunnelservice", configPath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		// Fallback: try wg-quick
-		cmd2 := exec.Command("wg-quick", "up", configPath)
-		if output2, err2 := cmd2.CombinedOutput(); err2 != nil {
-			logger.Printf("wireguard.exe: %s", string(output))
-			logger.Printf("wg-quick: %s", string(output2))
-			return fmt.Errorf("WireGuard non trouvé — installez-le depuis https://www.wireguard.com/install/")
+	// Try wireguard.exe service first
+	if strings.Contains(wgPath, "wireguard.exe") {
+		cmd := exec.Command(wgPath, "/installtunnelservice", configPath)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			logger.Printf("wireguard.exe échoué: %s", string(output))
+			// Fallback: try wg-quick
+			if path, err := exec.LookPath("wg-quick"); err == nil {
+				cmd2 := exec.Command(path, "up", configPath)
+				if output2, err2 := cmd2.CombinedOutput(); err2 != nil {
+					return fmt.Errorf("échec installation tunnel: %s. Vérifiez que WireGuard est bien installé et que vous êtes Administrateur", string(output2))
+				}
+			} else {
+				return fmt.Errorf("échec installation tunnel WireGuard. Vérifiez que WireGuard est bien installé et que vous êtes Administrateur")
+			}
+		} else {
+			logger.Println("Tunnel WireGuard installé avec succès")
 		}
+	} else {
+		// Use wg-quick
+		cmd := exec.Command(wgPath, "up", configPath)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("wg-quick échoué: %s: %w", string(output), err)
+		}
+		logger.Println("Tunnel WireGuard activé avec wg-quick")
 	}
 	return nil
 }

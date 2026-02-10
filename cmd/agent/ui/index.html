@@ -235,6 +235,8 @@ body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--
         <div class="time-label">Durée de connexion</div>
       </div>
 
+      <div class="error" id="wgWarning" style="display:none;background:rgba(251,146,60,0.1);border-color:rgba(251,146,60,0.3);color:var(--orange)"></div>
+
       <div class="info-grid">
         <div class="info-item">
           <div class="label">IP Tunnel</div>
@@ -327,6 +329,16 @@ function showDashboard(data){
   document.getElementById('infoUser').textContent=data.email||'—';
   document.getElementById('infoDevice').textContent=data.device||'—';
   document.getElementById('infoServer').textContent=data.control_plane||'—';
+  
+  // Show WireGuard warning if present
+  const wgWarning=document.getElementById('wgWarning');
+  if(data.warning){
+    wgWarning.textContent='⚠️ '+data.warning;
+    wgWarning.classList.add('show');
+  }else{
+    wgWarning.classList.remove('show');
+  }
+  
   connectionStart=Date.now();
   connectionTimer=setInterval(updateTimer,1000);
 }
