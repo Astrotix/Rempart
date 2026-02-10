@@ -74,6 +74,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	protected.HandleFunc("POST /api/connectors", s.handleCreateConnector)
 	protected.HandleFunc("GET /api/connectors/{id}", s.handleGetConnector)
 	protected.HandleFunc("GET /api/connectors/{id}/config", s.handleGetConnectorConfig)
+	protected.HandleFunc("DELETE /api/connectors/{id}", s.handleDeleteConnector)
 
 	protected.HandleFunc("GET /api/policies", s.handleListPolicies)
 	protected.HandleFunc("POST /api/policies", s.handleCreatePolicy)
@@ -586,6 +587,15 @@ func (s *Server) handleGetConnectorConfig(w http.ResponseWriter, r *http.Request
 
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write([]byte(wireguard.RenderINI(config)))
+}
+
+func (s *Server) handleDeleteConnector(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.Store.DeleteSiteConnector(r.Context(), id); err != nil {
+		jsonError(w, http.StatusNotFound, "Connecteur non trouve")
+		return
+	}
+	jsonResponse(w, http.StatusOK, map[string]string{"message": "Connecteur supprime"})
 }
 
 func (s *Server) handleConnectorRegister(w http.ResponseWriter, r *http.Request) {

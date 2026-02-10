@@ -423,6 +423,14 @@ func (db *DB) MarkTokenUsed(ctx context.Context, id string) error {
 	return err
 }
 
+// DeleteSiteConnector removes a connector from the database.
+func (db *DB) DeleteSiteConnector(ctx context.Context, id string) error {
+	_, err := db.ExecContext(ctx,
+		`DELETE FROM site_connectors WHERE id=$1`, id,
+	)
+	return err
+}
+
 // --- Policy Repository ---
 
 // CreatePolicy inserts a new policy.

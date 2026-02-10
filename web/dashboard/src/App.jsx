@@ -603,9 +603,39 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
     setError('');
   };
 
-  const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
-    // Tu peux ajouter un toast de confirmation si tu veux
+  const copyToClipboard = async (text) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      alert('✅ Copié dans le presse-papiers !');
+    } catch (err) {
+      // Fallback pour les navigateurs qui ne supportent pas clipboard API
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.opacity = '0';
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        alert('✅ Copié dans le presse-papiers !');
+      } catch (e) {
+        alert('❌ Impossible de copier. Sélectionnez le texte manuellement.');
+      }
+      document.body.removeChild(textArea);
+    }
+  };
+
+  const handleDeleteConnector = async (id) => {
+    if (!confirm('Êtes-vous sûr de vouloir supprimer ce connecteur ? Cette action est irréversible.')) {
+      return;
+    }
+    try {
+      await api.deleteConnector(id);
+      loadConnectors();
+      setError('');
+    } catch (err) {
+      setError('Erreur lors de la suppression : ' + err.message);
+    }
   };
 
   return (
@@ -834,13 +864,23 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
                       <td className="mono" style={{ fontSize: 10 }}>{conn.token ? conn.token.slice(0, 16) + '...' : '-'}</td>
                       <td className="cell-muted">{timeAgo(conn.last_seen)}</td>
                       <td>
-                        <button 
-                          className="btn btn-small" 
-                          onClick={() => { setCreatedConnector(conn); setStep('install'); }}
-                          title="Voir les instructions d'installation"
-                        >
-                          📋 Instructions
-                        </button>
+                        <div style={{ display: 'flex', gap: 8 }}>
+                          <button 
+                            className="btn btn-small" 
+                            onClick={() => { setCreatedConnector(conn); setStep('install'); }}
+                            title="Voir les instructions d'installation"
+                          >
+                            📋 Instructions
+                          </button>
+                          <button 
+                            className="btn btn-small" 
+                            onClick={() => handleDeleteConnector(conn.id)}
+                            title="Supprimer le connecteur"
+                            style={{ background: 'var(--accent-red)', color: 'white' }}
+                          >
+                            🗑️ Supprimer
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
