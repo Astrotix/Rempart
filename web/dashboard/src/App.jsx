@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import api from './api';
 import './App.css';
 
@@ -771,15 +771,15 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
                 Copier
               </button>
               <code>
-                sudo apt update && sudo apt install -y wireguard git wget<br />
+                sudo apt update &amp;&amp; sudo apt install -y wireguard git wget<br />
                 # Installer Go 1.23 (requis)<br />
                 wget -O /tmp/go1.23.linux-amd64.tar.gz https://go.dev/dl/go1.23.0.linux-amd64.tar.gz<br />
-                sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf /tmp/go1.23.linux-amd64.tar.gz<br />
-                echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc<br />
+                sudo rm -rf /usr/local/go &amp;&amp; sudo tar -C /usr/local -xzf /tmp/go1.23.linux-amd64.tar.gz<br />
+                {"echo 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc"}<br />
                 export PATH=$PATH:/usr/local/go/bin<br />
                 # Configurer IP forwarding<br />
                 sudo sysctl -w net.ipv4.ip_forward=1<br />
-                echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
+                {"echo \"net.ipv4.ip_forward=1\" | sudo tee -a /etc/sysctl.conf"}
               </code>
             </div>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
@@ -866,33 +866,58 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
                 </thead>
                 <tbody>
                   {connectors.map(conn => (
-                    <tr key={conn.id}>
-                      <td><StatusDot status={conn.status} /></td>
-                      <td className="cell-bold">{conn.name}</td>
-                      <td>{conn.site_name}</td>
-                      <td>{pops.find(p => p.id === conn.assigned_pop_id)?.name || '-'}</td>
-                      <td className="mono" style={{ fontSize: 10 }}>{conn.token ? conn.token.slice(0, 16) + '...' : '-'}</td>
-                      <td className="cell-muted">{timeAgo(conn.last_seen)}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 8 }}>
-                          <button 
-                            className="btn btn-small" 
-                            onClick={() => { setCreatedConnector(conn); setStep('install'); }}
-                            title="Voir les instructions d'installation"
-                          >
-                            📋 Instructions
-                          </button>
-                          <button 
-                            className="btn btn-small" 
-                            onClick={() => handleDeleteConnector(conn.id)}
-                            title="Supprimer le connecteur"
-                            style={{ background: 'var(--accent-red)', color: 'white' }}
-                          >
-                            🗑️ Supprimer
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
+                    <React.Fragment key={conn.id}>
+                      <tr>
+                        <td><StatusDot status={conn.status} /></td>
+                        <td className="cell-bold">{conn.name}</td>
+                        <td>{conn.site_name}</td>
+                        <td>{pops.find(p => p.id === conn.assigned_pop_id)?.name || '-'}</td>
+                        <td className="mono" style={{ fontSize: 10 }}>{conn.token ? conn.token.slice(0, 16) + '...' : '-'}</td>
+                        <td className="cell-muted">{timeAgo(conn.last_seen)}</td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 8 }}>
+                            <button 
+                              className="btn btn-small" 
+                              onClick={() => { setCreatedConnector(conn); setStep('install'); }}
+                              title="Voir les instructions d'installation"
+                            >
+                              📋 Instructions
+                            </button>
+                            <button 
+                              className="btn btn-small" 
+                              onClick={() => handleDeleteConnector(conn.id)}
+                              title="Supprimer le connecteur"
+                              style={{ background: 'var(--accent-red)', color: 'white' }}
+                            >
+                              🗑️ Supprimer
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                      {conn.status !== 'online' && conn.token && (
+                        <tr>
+                          <td colSpan="7" style={{ padding: '12px 16px', background: 'rgba(59, 130, 246, 0.05)', borderTop: 'none' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                              <span style={{ fontSize: 12, color: 'var(--accent-orange)', fontWeight: 600 }}>⏳ En attente de connexion — Lancez cette commande sur le serveur du site :</span>
+                            </div>
+                            <div className="code-block" style={{ position: 'relative', margin: 0 }}>
+                              <button 
+                                onClick={() => copyToClipboard(`sudo ./ztna-connector \\\n  --token ${conn.token} \\\n  --control-plane http://${controlPlaneIP}:8080 \\\n  --networks ${conn.networks?.join(',') || ''}`)}
+                                style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
+                              >
+                                Copier
+                              </button>
+                              <code>
+                                sudo ./ztna-connector \<br />
+                                &nbsp;&nbsp;--token <span style={{ color: 'var(--accent-orange)', fontWeight: 600 }}>{conn.token}</span> \<br />
+                                &nbsp;&nbsp;--control-plane http://<span style={{ color: 'var(--accent-blue)' }}>{controlPlaneIP}</span>:8080 \<br />
+                                &nbsp;&nbsp;--networks <span style={{ color: 'var(--accent-green)' }}>{conn.networks?.join(',') || ''}</span>
+                              </code>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
