@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ZTNA Sovereign — Connexion Sécurisée</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0e1a;--bg2:#111827;--bg3:#1a2035;
+  --card:rgba(15,23,42,0.85);--card-border:rgba(56,189,248,0.15);
+  --blue:#38bdf8;--cyan:#22d3ee;--purple:#a78bfa;--green:#34d399;
+  --red:#f87171;--orange:#fb923c;--text:#e2e8f0;--muted:#64748b;
+  --glow:0 0 20px rgba(56,189,248,0.3),0 0 60px rgba(56,189,248,0.1);
+}
+body{font-family:'Segoe UI',system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;overflow:hidden;display:flex;align-items:center;justify-content:center}
+
+/* Animated background */
+.bg-grid{position:fixed;inset:0;background-image:
+  linear-gradient(rgba(56,189,248,0.03) 1px,transparent 1px),
+  linear-gradient(90deg,rgba(56,189,248,0.03) 1px,transparent 1px);
+  background-size:60px 60px;animation:gridMove 20s linear infinite}
+@keyframes gridMove{0%{transform:translate(0,0)}100%{transform:translate(60px,60px)}}
+
+.bg-orbs{position:fixed;inset:0;pointer-events:none;overflow:hidden}
+.orb{position:absolute;border-radius:50%;filter:blur(80px);opacity:0.15;animation:orbFloat 15s ease-in-out infinite}
+.orb-1{width:500px;height:500px;background:var(--blue);top:-10%;left:-10%;animation-delay:0s}
+.orb-2{width:400px;height:400px;background:var(--purple);bottom:-10%;right:-10%;animation-delay:-5s}
+.orb-3{width:300px;height:300px;background:var(--cyan);top:50%;left:50%;animation-delay:-10s}
+@keyframes orbFloat{0%,100%{transform:translate(0,0) scale(1)}33%{transform:translate(30px,-40px) scale(1.1)}66%{transform:translate(-20px,30px) scale(0.9)}}
+
+/* Particles */
+.particles{position:fixed;inset:0;pointer-events:none}
+.particle{position:absolute;width:2px;height:2px;background:var(--blue);border-radius:50%;opacity:0;animation:particleRise linear infinite}
+@keyframes particleRise{0%{opacity:0;transform:translateY(100vh) scale(0)}10%{opacity:0.6}90%{opacity:0.6}100%{opacity:0;transform:translateY(-10vh) scale(1)}}
+
+/* Main container */
+.app{position:relative;z-index:10;width:100%;max-width:460px;padding:20px}
+.card{background:var(--card);backdrop-filter:blur(20px);border:1px solid var(--card-border);border-radius:24px;padding:40px;box-shadow:var(--glow);transition:all 0.5s ease}
+.card:hover{box-shadow:0 0 30px rgba(56,189,248,0.4),0 0 80px rgba(56,189,248,0.15)}
+
+/* Logo */
+.logo{text-align:center;margin-bottom:32px}
+.logo-icon{width:80px;height:80px;margin:0 auto 16px;position:relative}
+.logo-ring{position:absolute;inset:0;border:2px solid var(--blue);border-radius:50%;animation:logoSpin 8s linear infinite}
+.logo-ring:nth-child(2){inset:8px;border-color:var(--cyan);animation-direction:reverse;animation-duration:6s}
+.logo-ring:nth-child(3){inset:16px;border-color:var(--purple);animation-duration:10s}
+.logo-shield{position:absolute;inset:20px;display:flex;align-items:center;justify-content:center;font-size:28px}
+@keyframes logoSpin{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+.logo h1{font-size:22px;font-weight:700;letter-spacing:1px;background:linear-gradient(135deg,var(--blue),var(--cyan),var(--purple));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.logo p{color:var(--muted);font-size:12px;margin-top:4px;letter-spacing:2px;text-transform:uppercase}
+
+/* Form */
+.form-group{margin-bottom:20px;position:relative}
+.form-group label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:8px;font-weight:600}
+.form-group input{width:100%;padding:14px 16px 14px 44px;background:rgba(15,23,42,0.6);border:1px solid rgba(56,189,248,0.2);border-radius:12px;color:var(--text);font-size:15px;transition:all 0.3s ease;outline:none}
+.form-group input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(56,189,248,0.15),inset 0 0 20px rgba(56,189,248,0.05)}
+.form-group input::placeholder{color:var(--muted)}
+.form-group .input-icon{position:absolute;left:14px;bottom:14px;font-size:18px;opacity:0.5}
+.form-group input:focus ~ .input-icon{opacity:1}
+
+.form-group-url{margin-bottom:20px}
+.form-group-url input{padding-left:16px;font-size:13px;font-family:monospace}
+
+/* Buttons */
+.btn{width:100%;padding:16px;border:none;border-radius:14px;font-size:16px;font-weight:700;cursor:pointer;transition:all 0.3s ease;position:relative;overflow:hidden;text-transform:uppercase;letter-spacing:2px}
+.btn-connect{background:linear-gradient(135deg,var(--blue),var(--cyan));color:#0a0e1a;box-shadow:0 4px 20px rgba(56,189,248,0.4)}
+.btn-connect:hover{transform:translateY(-2px);box-shadow:0 6px 30px rgba(56,189,248,0.6)}
+.btn-connect:active{transform:translateY(0)}
+.btn-connect:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+.btn-connect .btn-shine{position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.2),transparent);animation:btnShine 3s ease-in-out infinite}
+@keyframes btnShine{0%{left:-100%}50%{left:100%}100%{left:100%}}
+
+.btn-disconnect{background:transparent;border:1px solid var(--red);color:var(--red)}
+.btn-disconnect:hover{background:rgba(248,113,113,0.1)}
+
+/* Error */
+.error{background:rgba(248,113,113,0.1);border:1px solid rgba(248,113,113,0.3);border-radius:12px;padding:12px 16px;margin-bottom:20px;font-size:13px;color:var(--red);display:none;animation:fadeIn 0.3s ease}
+.error.show{display:block}
+
+/* Connecting animation */
+.connecting-overlay{display:none;position:fixed;inset:0;z-index:100;background:rgba(10,14,26,0.95);backdrop-filter:blur(10px);align-items:center;justify-content:center;flex-direction:column}
+.connecting-overlay.show{display:flex}
+.connecting-rings{position:relative;width:160px;height:160px;margin-bottom:32px}
+.connecting-rings .ring{position:absolute;inset:0;border:3px solid transparent;border-radius:50%;animation:connectRing 1.5s ease-in-out infinite}
+.connecting-rings .ring:nth-child(1){border-top-color:var(--blue);animation-delay:0s}
+.connecting-rings .ring:nth-child(2){inset:15px;border-right-color:var(--cyan);animation-delay:0.2s;animation-direction:reverse}
+.connecting-rings .ring:nth-child(3){inset:30px;border-bottom-color:var(--purple);animation-delay:0.4s}
+.connecting-rings .ring:nth-child(4){inset:45px;border-left-color:var(--green);animation-delay:0.6s;animation-direction:reverse}
+.connecting-rings .center{position:absolute;inset:55px;display:flex;align-items:center;justify-content:center;font-size:36px;animation:pulse 1.5s ease-in-out infinite}
+@keyframes connectRing{0%{transform:rotate(0deg)}100%{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{opacity:0.5;transform:scale(0.95)}50%{opacity:1;transform:scale(1.05)}}
+.connecting-text{font-size:18px;color:var(--cyan);letter-spacing:3px;text-transform:uppercase;animation:textGlow 2s ease-in-out infinite}
+.connecting-sub{font-size:13px;color:var(--muted);margin-top:12px}
+@keyframes textGlow{0%,100%{text-shadow:0 0 10px rgba(34,211,238,0.3)}50%{text-shadow:0 0 20px rgba(34,211,238,0.6),0 0 40px rgba(34,211,238,0.3)}}
+
+/* Connected dashboard */
+.dashboard{display:none}
+.dashboard.show{display:block}
+.login-view{display:block}
+.login-view.hide{display:none}
+
+.status-header{text-align:center;margin-bottom:28px}
+.status-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 20px;border-radius:50px;font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase}
+.status-badge.online{background:rgba(52,211,153,0.15);border:1px solid rgba(52,211,153,0.4);color:var(--green)}
+.status-badge.offline{background:rgba(248,113,113,0.15);border:1px solid rgba(248,113,113,0.4);color:var(--red)}
+.status-dot{width:10px;height:10px;border-radius:50%;background:currentColor;animation:statusPulse 2s ease-in-out infinite}
+@keyframes statusPulse{0%,100%{box-shadow:0 0 0 0 currentColor}50%{box-shadow:0 0 0 6px transparent}}
+
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:24px}
+.info-item{background:rgba(15,23,42,0.5);border:1px solid rgba(56,189,248,0.1);border-radius:12px;padding:14px}
+.info-item .label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:4px}
+.info-item .value{font-size:15px;font-weight:600;font-family:monospace;color:var(--cyan)}
+.info-item.full{grid-column:1/-1}
+
+.timer{text-align:center;margin-bottom:20px}
+.timer .time{font-size:32px;font-weight:700;font-family:monospace;background:linear-gradient(135deg,var(--green),var(--cyan));-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+.timer .time-label{font-size:11px;color:var(--muted);margin-top:2px;text-transform:uppercase;letter-spacing:1px}
+
+/* Footer */
+.footer{text-align:center;margin-top:20px;font-size:11px;color:var(--muted)}
+.footer a{color:var(--blue);text-decoration:none}
+
+/* Animations */
+@keyframes fadeIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}
+.fade-in{animation:fadeIn 0.5s ease}
+
+/* Scrollbar */
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--card-border);border-radius:3px}
+
+/* Settings toggle */
+.settings-toggle{text-align:center;margin-bottom:16px}
+.settings-toggle button{background:none;border:none;color:var(--muted);font-size:12px;cursor:pointer;padding:4px 12px;border-radius:8px;transition:all 0.2s}
+.settings-toggle button:hover{color:var(--blue);background:rgba(56,189,248,0.1)}
+.settings-row{display:none;margin-bottom:16px}
+.settings-row.show{display:block}
+</style>
+</head>
+<body>
+
+<div class="bg-grid"></div>
+<div class="bg-orbs">
+  <div class="orb orb-1"></div>
+  <div class="orb orb-2"></div>
+  <div class="orb orb-3"></div>
+</div>
+<div class="particles" id="particles"></div>
+
+<!-- Connecting overlay -->
+<div class="connecting-overlay" id="connectingOverlay">
+  <div class="connecting-rings">
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <div class="ring"></div>
+    <div class="center">🔐</div>
+  </div>
+  <div class="connecting-text" id="connectingText">Connexion sécurisée</div>
+  <div class="connecting-sub" id="connectingSub">Authentification en cours...</div>
+</div>
+
+<div class="app">
+  <div class="card">
+    <!-- LOGIN VIEW -->
+    <div class="login-view" id="loginView">
+      <div class="logo">
+        <div class="logo-icon">
+          <div class="logo-ring"></div>
+          <div class="logo-ring"></div>
+          <div class="logo-ring"></div>
+          <div class="logo-shield">🛡️</div>
+        </div>
+        <h1>ZTNA Sovereign</h1>
+        <p>Connexion Zero Trust</p>
+      </div>
+
+      <div class="error" id="error"></div>
+
+      <form id="loginForm" onsubmit="handleConnect(event)">
+        <div class="form-group">
+          <label>Adresse email</label>
+          <input type="email" id="email" placeholder="vous@entreprise.fr" required autocomplete="email">
+          <span class="input-icon">📧</span>
+        </div>
+        <div class="form-group">
+          <label>Mot de passe</label>
+          <input type="password" id="password" placeholder="••••••••••" required autocomplete="current-password">
+          <span class="input-icon">🔑</span>
+        </div>
+
+        <div class="settings-toggle">
+          <button type="button" onclick="toggleSettings()">⚙️ Paramètres avancés</button>
+        </div>
+        <div class="settings-row" id="settingsRow">
+          <div class="form-group form-group-url">
+            <label>Serveur Control Plane</label>
+            <input type="url" id="controlPlane" placeholder="http://votre-serveur:8080">
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-connect" id="connectBtn">
+          <span class="btn-shine"></span>
+          Connexion Sécurisée
+        </button>
+      </form>
+
+      <div class="footer">
+        <p>🔒 Tunnel WireGuard chiffré de bout en bout</p>
+      </div>
+    </div>
+
+    <!-- CONNECTED DASHBOARD -->
+    <div class="dashboard" id="dashboard">
+      <div class="logo" style="margin-bottom:20px">
+        <div class="logo-icon" style="width:60px;height:60px">
+          <div class="logo-ring"></div>
+          <div class="logo-ring"></div>
+          <div class="logo-ring"></div>
+          <div class="logo-shield" style="font-size:22px;inset:16px">🛡️</div>
+        </div>
+        <h1 style="font-size:18px">ZTNA Sovereign</h1>
+      </div>
+
+      <div class="status-header">
+        <div class="status-badge online" id="statusBadge">
+          <div class="status-dot"></div>
+          <span id="statusText">Connecté</span>
+        </div>
+      </div>
+
+      <div class="timer">
+        <div class="time" id="timerDisplay">00:00:00</div>
+        <div class="time-label">Durée de connexion</div>
+      </div>
+
+      <div class="info-grid">
+        <div class="info-item">
+          <div class="label">IP Tunnel</div>
+          <div class="value" id="infoTunnelIP">—</div>
+        </div>
+        <div class="info-item">
+          <div class="label">Agent ID</div>
+          <div class="value" id="infoAgentID" style="font-size:11px">—</div>
+        </div>
+        <div class="info-item">
+          <div class="label">Utilisateur</div>
+          <div class="value" id="infoUser" style="font-size:13px;color:var(--text)">—</div>
+        </div>
+        <div class="info-item">
+          <div class="label">Appareil</div>
+          <div class="value" id="infoDevice" style="font-size:13px;color:var(--text)">—</div>
+        </div>
+        <div class="info-item full">
+          <div class="label">Interface WireGuard</div>
+          <div class="value" id="infoInterface" style="font-size:13px">wg-ztna</div>
+        </div>
+      </div>
+
+      <button class="btn btn-disconnect" onclick="handleDisconnect()">
+        ⏏ Déconnecter
+      </button>
+
+      <div class="footer" style="margin-top:16px">
+        <p>🔒 Tunnel chiffré actif — <span id="infoServer">—</span></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Create particles
+(function(){
+  const c=document.getElementById('particles');
+  for(let i=0;i<30;i++){
+    const p=document.createElement('div');
+    p.className='particle';
+    p.style.left=Math.random()*100+'%';
+    p.style.animationDuration=(8+Math.random()*12)+'s';
+    p.style.animationDelay=(-Math.random()*20)+'s';
+    p.style.width=p.style.height=(1+Math.random()*2)+'px';
+    c.appendChild(p);
+  }
+})();
+
+let connectionTimer=null;
+let connectionStart=null;
+
+function toggleSettings(){
+  document.getElementById('settingsRow').classList.toggle('show');
+}
+
+function showError(msg){
+  const el=document.getElementById('error');
+  el.textContent=msg;
+  el.classList.add('show');
+}
+function hideError(){
+  document.getElementById('error').classList.remove('show');
+}
+
+function showConnecting(text,sub){
+  const o=document.getElementById('connectingOverlay');
+  document.getElementById('connectingText').textContent=text||'Connexion sécurisée';
+  document.getElementById('connectingSub').textContent=sub||'Authentification en cours...';
+  o.classList.add('show');
+}
+function hideConnecting(){
+  document.getElementById('connectingOverlay').classList.remove('show');
+}
+
+function updateTimer(){
+  if(!connectionStart)return;
+  const diff=Math.floor((Date.now()-connectionStart)/1000);
+  const h=String(Math.floor(diff/3600)).padStart(2,'0');
+  const m=String(Math.floor((diff%3600)/60)).padStart(2,'0');
+  const s=String(diff%60).padStart(2,'0');
+  document.getElementById('timerDisplay').textContent=h+':'+m+':'+s;
+}
+
+function showDashboard(data){
+  document.getElementById('loginView').classList.add('hide');
+  document.getElementById('dashboard').classList.add('show');
+  document.getElementById('infoTunnelIP').textContent=data.tunnel_ip||'—';
+  document.getElementById('infoAgentID').textContent=data.agent_id||'—';
+  document.getElementById('infoUser').textContent=data.email||'—';
+  document.getElementById('infoDevice').textContent=data.device||'—';
+  document.getElementById('infoServer').textContent=data.control_plane||'—';
+  connectionStart=Date.now();
+  connectionTimer=setInterval(updateTimer,1000);
+}
+
+function showLogin(){
+  document.getElementById('loginView').classList.remove('hide');
+  document.getElementById('dashboard').classList.remove('show');
+  if(connectionTimer){clearInterval(connectionTimer);connectionTimer=null;}
+  connectionStart=null;
+  document.getElementById('timerDisplay').textContent='00:00:00';
+}
+
+async function handleConnect(e){
+  e.preventDefault();
+  hideError();
+  const email=document.getElementById('email').value;
+  const password=document.getElementById('password').value;
+  const cp=document.getElementById('controlPlane').value;
+  
+  const btn=document.getElementById('connectBtn');
+  btn.disabled=true;
+
+  showConnecting('Connexion sécurisée','Authentification en cours...');
+
+  try{
+    // Step 1: Login
+    const loginResp=await fetch('/api/connect',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({email,password,control_plane:cp||''})
+    });
+    const loginData=await loginResp.json();
+    if(!loginResp.ok) throw new Error(loginData.error||'Échec de connexion');
+
+    // Show tunnel setup phase
+    document.getElementById('connectingText').textContent='Tunnel sécurisé';
+    document.getElementById('connectingSub').textContent='Configuration WireGuard...';
+
+    await new Promise(r=>setTimeout(r,800));
+
+    hideConnecting();
+    showDashboard(loginData);
+  }catch(err){
+    hideConnecting();
+    showError(err.message);
+    btn.disabled=false;
+  }
+}
+
+async function handleDisconnect(){
+  showConnecting('Déconnexion','Fermeture du tunnel...');
+  try{
+    await fetch('/api/disconnect',{method:'POST'});
+  }catch(e){}
+  await new Promise(r=>setTimeout(r,1000));
+  hideConnecting();
+  showLogin();
+  document.getElementById('connectBtn').disabled=false;
+}
+
+// Check initial status
+(async function(){
+  try{
+    const r=await fetch('/api/status');
+    const d=await r.json();
+    if(d.connected){
+      showDashboard(d);
+    }
+  }catch(e){}
+  // Pre-fill control plane from server
+  try{
+    const r=await fetch('/api/info');
+    const d=await r.json();
+    if(d.control_plane){
+      document.getElementById('controlPlane').value=d.control_plane;
+      document.getElementById('controlPlane').placeholder=d.control_plane;
+    }
+  }catch(e){}
+})();
+</script>
+
+</body>
+</html>

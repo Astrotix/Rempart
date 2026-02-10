@@ -1016,19 +1016,22 @@ function AgentsPage() {
       </div>
 
       <div className="card" style={{ marginBottom: 20, background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Comment ca marche ?</h3>
+        <h3 style={{ fontSize: 16, marginBottom: 12 }}>🚀 Comment ca marche ?</h3>
         <div style={{ fontSize: 13, lineHeight: 1.8 }}>
           <p style={{ marginBottom: 8 }}>
             <strong>1.</strong> Creez un <strong>utilisateur</strong> dans la section Utilisateurs
           </p>
           <p style={{ marginBottom: 8 }}>
-            <strong>2.</strong> Creez une <strong>politique</strong> dans la section Politiques pour autoriser cet utilisateur a acceder a un connecteur
+            <strong>2.</strong> Creez une <strong>politique</strong> dans la section Politiques pour autoriser cet utilisateur
           </p>
           <p style={{ marginBottom: 8 }}>
-            <strong>3.</strong> <strong>Telechargez</strong> l&apos;agent ci-dessous et lancez-le avec les identifiants de l&apos;utilisateur
+            <strong>3.</strong> <strong>Telechargez</strong> l&apos;agent ci-dessous
+          </p>
+          <p style={{ marginBottom: 8 }}>
+            <strong>4.</strong> <strong>Double-cliquez</strong> sur l&apos;exe — une interface futuriste s&apos;ouvre dans le navigateur
           </p>
           <p style={{ marginBottom: 0 }}>
-            <strong>4.</strong> L&apos;agent se connecte automatiquement au reseau ZTNA. Aucun token a copier !
+            <strong>5.</strong> Entrez vos identifiants → Cliquez <strong>&quot;Connexion Securisee&quot;</strong> → C&apos;est connecte !
           </p>
         </div>
       </div>
@@ -1072,36 +1075,44 @@ function AgentsPage() {
       </div>
 
       <div className="card" style={{ marginBottom: 20 }}>
-        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Utilisation (Windows)</h3>
+        <h3 style={{ fontSize: 16, marginBottom: 12 }}>🪟 Windows</h3>
         <div style={{ fontSize: 13, lineHeight: 1.6 }}>
           <p style={{ marginBottom: 12 }}>
             <strong>Prerequis :</strong> Installez <a href="https://www.wireguard.com/install/" target="_blank" rel="noreferrer" style={{ color: 'var(--accent-blue)' }}>WireGuard pour Windows</a>
           </p>
-          <p style={{ marginBottom: 8 }}>Ouvrez un terminal <strong>en Administrateur</strong> (PowerShell ou CMD) et lancez :</p>
-          <div className="code-block" style={{ fontSize: 12 }}>
-            <code>
-              ztna-agent-windows-amd64.exe ^<br />
-              &nbsp;&nbsp;--email <span style={{ color: 'var(--accent-orange)' }}>votre-email@entreprise.fr</span> ^<br />
-              &nbsp;&nbsp;--password <span style={{ color: 'var(--accent-orange)' }}>VotreMotDePasse</span> ^<br />
-              &nbsp;&nbsp;--control-plane <span style={{ color: 'var(--accent-blue)' }}>http://{controlPlaneIP}:8080</span>
-            </code>
-          </div>
+          <p style={{ marginBottom: 8 }}>
+            <strong>1.</strong> Telechargez <code>ztna-agent-windows-amd64.exe</code> ci-dessus
+          </p>
+          <p style={{ marginBottom: 8 }}>
+            <strong>2.</strong> Clic droit → <strong>&quot;Executer en tant qu&apos;administrateur&quot;</strong>
+          </p>
+          <p style={{ marginBottom: 8 }}>
+            <strong>3.</strong> L&apos;interface s&apos;ouvre automatiquement dans votre navigateur
+          </p>
+          <p style={{ marginBottom: 8 }}>
+            <strong>4.</strong> Entrez votre email et mot de passe → Cliquez <strong>&quot;Connexion Securisee&quot;</strong>
+          </p>
+          <p style={{ marginBottom: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+            💡 Le serveur Control Plane est pre-configure a <code>http://{controlPlaneIP}:8080</code> (modifiable dans Parametres avances)
+          </p>
+          <p style={{ marginBottom: 0, fontSize: 12, color: 'var(--text-muted)' }}>
+            🖥️ Mode CLI disponible : <code>ztna-agent-windows-amd64.exe --cli --email X --password Y --control-plane URL</code>
+          </p>
         </div>
       </div>
 
       <div className="card" style={{ marginBottom: 20 }}>
-        <h3 style={{ fontSize: 16, marginBottom: 12 }}>Utilisation (Linux / macOS)</h3>
+        <h3 style={{ fontSize: 16, marginBottom: 12 }}>🐧 Linux / 🍎 macOS</h3>
         <div style={{ fontSize: 13, lineHeight: 1.6 }}>
-          <p style={{ marginBottom: 8 }}>Rendez l&apos;agent executable puis lancez-le avec <code>sudo</code> :</p>
           <div className="code-block" style={{ fontSize: 12 }}>
             <code>
               chmod +x ztna-agent-linux-amd64<br />
-              sudo ./ztna-agent-linux-amd64 \<br />
-              &nbsp;&nbsp;--email <span style={{ color: 'var(--accent-orange)' }}>votre-email@entreprise.fr</span> \<br />
-              &nbsp;&nbsp;--password <span style={{ color: 'var(--accent-orange)' }}>VotreMotDePasse</span> \<br />
-              &nbsp;&nbsp;--control-plane <span style={{ color: 'var(--accent-blue)' }}>http://{controlPlaneIP}:8080</span>
+              sudo ./ztna-agent-linux-amd64
             </code>
           </div>
+          <p style={{ marginTop: 8, fontSize: 12, color: 'var(--text-muted)' }}>
+            L&apos;interface s&apos;ouvre dans le navigateur. Utilisez <code>--cli</code> pour le mode terminal.
+          </p>
         </div>
       </div>
 
