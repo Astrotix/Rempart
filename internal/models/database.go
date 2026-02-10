@@ -96,6 +96,8 @@ func (db *DB) Migrate(ctx context.Context) error {
 			name            TEXT NOT NULL,
 			site_name       TEXT NOT NULL,
 			token           TEXT UNIQUE NOT NULL,
+			token_used      BOOLEAN NOT NULL DEFAULT false,
+			token_expiry    TIMESTAMPTZ NOT NULL DEFAULT NOW() + INTERVAL '24 hours',
 			public_key      TEXT NOT NULL DEFAULT '',
 			private_key     TEXT NOT NULL DEFAULT '',
 			assigned_pop_id TEXT REFERENCES pops(id),
@@ -334,10 +336,10 @@ func (db *DB) CreateSiteConnector(ctx context.Context, conn *SiteConnector) erro
 	networksJSON, _ := json.Marshal(conn.Networks)
 
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO site_connectors (id, name, site_name, token, public_key, private_key, assigned_pop_id, networks, status, created_at)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-		conn.ID, conn.Name, conn.SiteName, conn.Token, conn.PublicKey, conn.PrivateKey,
-		conn.AssignedPoPID, networksJSON, conn.Status, conn.CreatedAt,
+		`INSERT INTO site_connectors (id, name, site_name, token, token_used, token_expiry, public_key, private_key, assigned_pop_id, networks, status, created_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+		conn.ID, conn.Name, conn.SiteName, conn.Token, conn.TokenUsed, conn.TokenExpiry,
+		conn.PublicKey, conn.PrivateKey, conn.AssignedPoPID, networksJSON, conn.Status, conn.CreatedAt,
 	)
 	return err
 }
@@ -347,10 +349,10 @@ func (db *DB) GetSiteConnector(ctx context.Context, id string) (*SiteConnector, 
 	conn := &SiteConnector{}
 	var networksJSON []byte
 	err := db.QueryRowContext(ctx,
-		`SELECT id, name, site_name, token, public_key, private_key, assigned_pop_id, networks, status, last_seen, created_at
+		`SELECT id, name, site_name, token, token_used, token_expiry, public_key, private_key, assigned_pop_id, networks, status, last_seen, created_at
 		 FROM site_connectors WHERE id = $1`, id,
-	).Scan(&conn.ID, &conn.Name, &conn.SiteName, &conn.Token, &conn.PublicKey, &conn.PrivateKey,
-		&conn.AssignedPoPID, &networksJSON, &conn.Status, &conn.LastSeen, &conn.CreatedAt)
+	).Scan(&conn.ID, &conn.Name, &conn.SiteName, &conn.Token, &conn.TokenUsed, &conn.TokenExpiry,
+		&conn.PublicKey, &conn.PrivateKey, &conn.AssignedPoPID, &networksJSON, &conn.Status, &conn.LastSeen, &conn.CreatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -363,10 +365,10 @@ func (db *DB) GetSiteConnectorByToken(ctx context.Context, token string) (*SiteC
 	conn := &SiteConnector{}
 	var networksJSON []byte
 	err := db.QueryRowContext(ctx,
-		`SELECT id, name, site_name, token, public_key, private_key, assigned_pop_id, networks, status, last_seen, created_at
+		`SELECT id, name, site_name, token, token_used, token_expiry, public_key, private_key, assigned_pop_id, networks, status, last_seen, created_at
 		 FROM site_connectors WHERE token = $1`, token,
-	).Scan(&conn.ID, &conn.Name, &conn.SiteName, &conn.Token, &conn.PublicKey, &conn.PrivateKey,
-		&conn.AssignedPoPID, &networksJSON, &conn.Status, &conn.LastSeen, &conn.CreatedAt)
+	).Scan(&conn.ID, &conn.Name, &conn.SiteName, &conn.Token, &conn.TokenUsed, &conn.TokenExpiry,
+		&conn.PublicKey, &conn.PrivateKey, &conn.AssignedPoPID, &networksJSON, &conn.Status, &conn.LastSeen, &conn.CreatedAt)
 	if err != nil {
 		return nil, err
 	}

@@ -220,7 +220,7 @@ function Sidebar({ page, setPage, onLogout, stats }) {
     <nav className="sidebar">
       <div className="sidebar-brand">
         <div className="brand-icon">&#128274;</div>
-        <div>
+      <div>
           <div className="brand-name">ZTNA Sovereign</div>
           <div className="brand-sub">Control Plane</div>
         </div>
@@ -500,18 +500,84 @@ function PoPsPage({ pops, onRefresh }) {
           ))}
         </div>
       )}
+
+      {pops.length > 0 && (
+        <div className="card">
+          <h3 className="card-title">Installation du PoP sur le serveur</h3>
+          <p className="card-desc">Une fois le PoP cree ci-dessus, installez-le sur votre serveur Ubuntu avec les commandes suivantes. L'ID du PoP est deja pre-rempli.</p>
+
+          {pops.map(pop => (
+            <div key={pop.id} style={{ marginBottom: 24, paddingBottom: 24, borderBottom: '1px solid var(--border)' }}>
+              <h4 className="code-section-title" style={{ marginTop: 0 }}>Installation pour : {pop.name} (ID: <span className="mono">{pop.id}</span>)</h4>
+
+              <h5 className="code-section-title" style={{ fontSize: 12, marginTop: 12 }}>1. Prerequis sur le serveur Ubuntu</h5>
+              <div className="code-block">
+                <code>
+                  sudo apt update && sudo apt install -y wireguard-tools git<br />
+                  sudo sysctl -w net.ipv4.ip_forward=1<br />
+                  echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf<br />
+                  sudo ufw allow 51820/udp<br />
+                  sudo ufw allow 22/tcp<br />
+                  sudo ufw --force enable
+                </code>
+              </div>
+
+              <h5 className="code-section-title" style={{ fontSize: 12, marginTop: 12 }}>2. Installer Go</h5>
+              <div className="code-block">
+                <code>
+                  wget https://go.dev/dl/go1.23.6.linux-amd64.tar.gz<br />
+                  sudo rm -rf /usr/local/go<br />
+                  sudo tar -C /usr/local -xzf go1.23.6.linux-amd64.tar.gz<br />
+                  export PATH=$PATH:/usr/local/go/bin<br />
+                  echo 'export PATH=$PATH:/usr/local/go/bin' &gt;&gt; ~/.bashrc<br />
+                  source ~/.bashrc
+                </code>
+              </div>
+
+              <h5 className="code-section-title" style={{ fontSize: 12, marginTop: 12 }}>3. Cloner et compiler</h5>
+              <div className="code-block">
+                <code>
+                  git clone https://github.com/Astrotix/Rempart.git<br />
+                  cd Rempart<br />
+                  go mod tidy<br />
+                  go build -o ztna-pop ./cmd/pop
+                </code>
+              </div>
+
+              <h5 className="code-section-title" style={{ fontSize: 12, marginTop: 12 }}>4. Lancer le PoP</h5>
+              <div className="code-block">
+                <code>
+                  sudo ./ztna-pop \<br />
+                  &nbsp;&nbsp;--pop-id "{pop.id}" \<br />
+                  &nbsp;&nbsp;--control-plane http://&lt;IP_CONTROL_PLANE&gt;:8080 \<br />
+                  &nbsp;&nbsp;--wg-interface wg0 \<br />
+                  &nbsp;&nbsp;--wg-port {pop.wg_port} \<br />
+                  &nbsp;&nbsp;--heartbeat 30
+                </code>
+              </div>
+
+              <p className="card-desc" style={{ marginTop: 8, fontSize: 12 }}>
+                <strong>Note :</strong> Remplacez <code>&lt;IP_CONTROL_PLANE&gt;</code> par l'IP publique de votre Control Plane (ex: 176.136.202.205).
+                Le PoP enverra des heartbeats toutes les 30 secondes et son statut passera a <strong>ONLINE</strong> dans le dashboard.
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 // --- Connectors Page ---
 function ConnectorsPage({ connectors, pops, onRefresh }) {
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', site_name: '', assigned_pop_id: '', networks: '' });
+  const [step, setStep] = useState('list'); // 'list', 'configure', 'install'
+  const [form, setForm] = useState({ name: '', site_name: '', assigned_pop_id: '', networks: '192.168.1.0/24' });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [createdConnector, setCreatedConnector] = useState(null);
+  const [controlPlaneIP, setControlPlaneIP] = useState('176.136.202.205'); // IP par défaut, peut être changée
 
-  const handleCreate = async (e) => {
+  const handleConfigure = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -520,9 +586,9 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
         ...form,
         networks: form.networks.split(',').map(s => s.trim()).filter(Boolean),
       };
-      await api.createConnector(conn);
-      setForm({ name: '', site_name: '', assigned_pop_id: '', networks: '192.168.1.0/24' });
-      setShowForm(false);
+      const newConn = await api.createConnector(conn);
+      setCreatedConnector(newConn);
+      setStep('install');
       await onRefresh();
     } catch (err) {
       setError(err.message);
@@ -530,92 +596,259 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
     setLoading(false);
   };
 
+  const handleBackToList = () => {
+    setStep('list');
+    setCreatedConnector(null);
+    setForm({ name: '', site_name: '', assigned_pop_id: '', networks: '192.168.1.0/24' });
+    setError('');
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text);
+    // Tu peux ajouter un toast de confirmation si tu veux
+  };
+
   return (
     <div className="page">
       <div className="page-header">
         <h2>Connecteurs Site ({connectors.length})</h2>
-        <button className="btn btn-primary" onClick={() => setShowForm(!showForm)}>
-          {showForm ? 'Annuler' : '+ Nouveau connecteur'}
-        </button>
+        {step === 'list' && (
+          <button className="btn btn-primary" onClick={() => setStep('configure')}>
+            + Nouveau connecteur
+          </button>
+        )}
+        {step !== 'list' && (
+          <button className="btn btn-small" onClick={handleBackToList}>
+            ← Retour à la liste
+          </button>
+        )}
       </div>
 
-      {showForm && (
-        <div className="card form-card">
-          <form onSubmit={handleCreate}>
-            <div className="form-row">
-              <input placeholder="Nom (ex: Siege Paris)" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
-              <input placeholder="Nom du site (ex: Bureau Paris)" value={form.site_name} onChange={e => setForm({ ...form, site_name: e.target.value })} required />
-              <select value={form.assigned_pop_id} onChange={e => setForm({ ...form, assigned_pop_id: e.target.value })} required>
-                <option value="">-- PoP --</option>
-                {pops.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-              <input placeholder="Reseaux internes du site (ex: 10.0.0.0/24, 172.16.0.0/24)" value={form.networks} onChange={e => setForm({ ...form, networks: e.target.value })} />
-              <button type="submit" className="btn btn-primary" disabled={loading}>{loading ? '...' : 'Creer'}</button>
+      {/* Étape 1 : Configuration */}
+      {step === 'configure' && (
+        <div className="card">
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <div style={{ padding: '8px 16px', background: 'var(--accent-blue)', borderRadius: 8, fontSize: 13, fontWeight: 600 }}>1. Configuration</div>
+              <div style={{ padding: '8px 16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, color: 'var(--text-muted)' }}>2. Installation</div>
             </div>
-            {error && <div className="form-error">{error}</div>}
+            <p className="card-desc">
+              Configurez votre connecteur de site. Le connecteur établit un tunnel WireGuard sortant vers le PoP pour exposer les réseaux internes de votre site.
+            </p>
+          </div>
+
+          <form onSubmit={handleConfigure}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 600 }}>Nom du connecteur *</label>
+                <input 
+                  type="text" 
+                  placeholder="Ex: Siege Paris" 
+                  value={form.name} 
+                  onChange={e => setForm({ ...form, name: e.target.value })} 
+                  required 
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                />
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Un nom qui identifie le réseau sur lequel le connecteur est installé.</p>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 600 }}>Nom du site *</label>
+                <input 
+                  type="text" 
+                  placeholder="Ex: Bureau Paris" 
+                  value={form.site_name} 
+                  onChange={e => setForm({ ...form, site_name: e.target.value })} 
+                  required 
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                />
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Nom descriptif du site client.</p>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 600 }}>PoP assigné *</label>
+                <select 
+                  value={form.assigned_pop_id} 
+                  onChange={e => setForm({ ...form, assigned_pop_id: e.target.value })} 
+                  required
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                >
+                  <option value="">-- Sélectionner un PoP --</option>
+                  {pops.map(p => <option key={p.id} value={p.id}>{p.name} ({p.location})</option>)}
+                </select>
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Le Point of Presence vers lequel le connecteur établira le tunnel.</p>
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 600 }}>Réseaux internes à exposer *</label>
+                <input 
+                  type="text" 
+                  placeholder="Ex: 192.168.1.0/24, 10.0.0.0/24" 
+                  value={form.networks} 
+                  onChange={e => setForm({ ...form, networks: e.target.value })} 
+                  required
+                  style={{ width: '100%', padding: '10px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+                />
+                <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Réseaux CIDR séparés par des virgules. Ces réseaux seront accessibles via le tunnel WireGuard.</p>
+              </div>
+
+              {error && <div className="form-error">{error}</div>}
+
+              <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
+                <button type="button" className="btn" onClick={handleBackToList} style={{ flex: 1 }}>Annuler</button>
+                <button type="submit" className="btn btn-primary" disabled={loading} style={{ flex: 1 }}>
+                  {loading ? 'Création...' : 'Créer et afficher les instructions'}
+                </button>
+              </div>
+            </div>
           </form>
         </div>
       )}
 
-      {connectors.length === 0 ? (
-        <EmptyState message="Aucun connecteur. Creez-en un et installez-le sur votre reseau." />
-      ) : (
+      {/* Étape 2 : Instructions d'installation */}
+      {step === 'install' && createdConnector && (
         <div className="card">
-          <table className="table">
-            <thead>
-              <tr><th>Statut</th><th>Nom</th><th>Site</th><th>PoP assigne</th><th>Token</th><th>Dernier contact</th></tr>
-            </thead>
-            <tbody>
-              {connectors.map(conn => (
-                <tr key={conn.id}>
-                  <td><StatusDot status={conn.status} /></td>
-                  <td className="cell-bold">{conn.name}</td>
-                  <td>{conn.site_name}</td>
-                  <td>{pops.find(p => p.id === conn.assigned_pop_id)?.name || '-'}</td>
-                  <td className="mono" style={{ fontSize: 10 }}>{conn.token ? conn.token.slice(0, 16) + '...' : '-'}</td>
-                  <td className="cell-muted">{timeAgo(conn.last_seen)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <div style={{ padding: '8px 16px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, color: 'var(--text-muted)' }}>1. Configuration</div>
+              <div style={{ padding: '8px 16px', background: 'var(--accent-blue)', borderRadius: 8, fontSize: 13, fontWeight: 600 }}>2. Installation</div>
+            </div>
+            <h3 style={{ marginBottom: 8 }}>Instructions d'installation</h3>
+            <p className="card-desc">
+              Connecteur <strong>{createdConnector.name}</strong> créé avec succès. Copiez et exécutez les commandes suivantes sur le serveur du site.
+            </p>
+          </div>
+
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'block', marginBottom: 6, fontSize: 13, fontWeight: 600 }}>IP du Control Plane</label>
+            <input 
+              type="text" 
+              value={controlPlaneIP} 
+              onChange={e => setControlPlaneIP(e.target.value)}
+              placeholder="176.136.202.205"
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontFamily: 'monospace' }}
+            />
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>L'IP publique de votre Control Plane. Les commandes ci-dessous seront mises à jour automatiquement.</p>
+          </div>
+
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>1. Prérequis sur le serveur du site</h4>
+            <div className="code-block" style={{ position: 'relative' }}>
+              <button 
+                onClick={() => copyToClipboard(`sudo apt update && sudo apt install -y wireguard git golang\nsudo sysctl -w net.ipv4.ip_forward=1\necho "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf`)}
+                style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
+              >
+                Copier
+              </button>
+              <code>
+                sudo apt update && sudo apt install -y wireguard git golang<br />
+                sudo sysctl -w net.ipv4.ip_forward=1<br />
+                echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
+              </code>
+            </div>
+          </div>
+
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>2. Cloner et compiler le connecteur</h4>
+            <div className="code-block" style={{ position: 'relative' }}>
+              <button 
+                onClick={() => copyToClipboard(`git clone https://github.com/Astrotix/Rempart.git\ncd Rempart\ngo build -o ztna-connector ./cmd/connector`)}
+                style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
+              >
+                Copier
+              </button>
+              <code>
+                git clone https://github.com/Astrotix/Rempart.git<br />
+                cd Rempart<br />
+                go build -o ztna-connector ./cmd/connector
+              </code>
+            </div>
+          </div>
+
+          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
+            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>3. Lancer le connecteur avec le token d'activation</h4>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+              Le token d'activation est unique et valable 24h. Une fois utilisé, il ne peut plus être réutilisé.
+            </p>
+            {createdConnector.token ? (
+              <>
+                <div className="code-block" style={{ position: 'relative' }}>
+                  <button 
+                    onClick={() => copyToClipboard(`sudo ./ztna-connector \\\n  --token ${createdConnector.token} \\\n  --control-plane http://${controlPlaneIP}:8080 \\\n  --networks ${createdConnector.networks?.join(',') || form.networks}`)}
+                    style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
+                  >
+                    Copier
+                  </button>
+                  <code>
+                    sudo ./ztna-connector \<br />
+                    &nbsp;&nbsp;--token <span style={{ color: 'var(--accent-orange)', fontWeight: 600 }}>{createdConnector.token}</span> \<br />
+                    &nbsp;&nbsp;--control-plane http://<span style={{ color: 'var(--accent-blue)' }}>{controlPlaneIP}</span>:8080 \<br />
+                    &nbsp;&nbsp;--networks <span style={{ color: 'var(--accent-green)' }}>{createdConnector.networks?.join(',') || form.networks}</span>
+                  </code>
+                </div>
+                <div style={{ marginTop: 12, padding: 12, background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: 8 }}>
+                  <p style={{ fontSize: 12, color: 'var(--accent-orange)', margin: 0 }}>
+                    <strong>⚠️ Important :</strong> Le token <code style={{ fontSize: 11 }}>{createdConnector.token}</code> est affiché une seule fois. 
+                    Sauvegardez-le ou copiez-le maintenant. Il expire dans 24h et devient inutilisable après la première activation.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <div style={{ padding: 16, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 8 }}>
+                <p style={{ fontSize: 13, color: 'var(--accent-red)', margin: 0 }}>
+                  <strong>Token non disponible :</strong> Le token d'activation n'est affiché qu'une seule fois lors de la création du connecteur. 
+                  Si vous n'avez pas sauvegardé le token, vous devez créer un nouveau connecteur.
+                </p>
+              </div>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', gap: 12, marginTop: 20 }}>
+            <button className="btn" onClick={handleBackToList} style={{ flex: 1 }}>Terminé</button>
+            <button className="btn btn-primary" onClick={() => { setStep('configure'); setCreatedConnector(null); }} style={{ flex: 1 }}>
+              Créer un autre connecteur
+            </button>
+          </div>
         </div>
       )}
 
-      <div className="card">
-        <h3 className="card-title">Installation du connecteur sur le site</h3>
-        <p className="card-desc">Le connecteur se compile depuis les sources Go. Il necessite WireGuard installe sur la machine.</p>
-
-        <h4 className="code-section-title">1. Prerequis (sur le serveur du site client)</h4>
-        <div className="code-block">
-          <code>
-            sudo apt update && sudo apt install -y wireguard git golang<br />
-            sudo sysctl -w net.ipv4.ip_forward=1<br />
-            echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf
-          </code>
-        </div>
-
-        <h4 className="code-section-title">2. Compiler le connecteur</h4>
-        <div className="code-block">
-          <code>
-            git clone &lt;VOTRE_REPO&gt; ztna-sovereign<br />
-            cd ztna-sovereign<br />
-            go build -o ztna-connector ./cmd/connector
-          </code>
-        </div>
-
-        <h4 className="code-section-title">3. Lancer avec le token d'activation</h4>
-        <div className="code-block">
-          <code>
-            sudo ./ztna-connector \<br />
-            &nbsp;&nbsp;--token &lt;TOKEN_DU_CONNECTEUR&gt; \<br />
-            &nbsp;&nbsp;--control-plane http://&lt;IP_CONTROL_PLANE&gt;:8080 \<br />
-            &nbsp;&nbsp;--networks &lt;RESEAU_INTERNE_DU_SITE&gt;<br />
-            <br />
-            # Exemple : --networks 10.0.0.0/24,172.16.0.0/24
-          </code>
-        </div>
-        <p className="card-desc">Le token est genere automatiquement a la creation du connecteur (colonne Token ci-dessus). Le connecteur etablit un tunnel WireGuard sortant vers le PoP assigne — aucune ouverture de port entrant n'est necessaire sur le firewall du site.</p>
-      </div>
+      {/* Liste des connecteurs existants */}
+      {step === 'list' && (
+        <>
+          {connectors.length === 0 ? (
+            <EmptyState message="Aucun connecteur. Creez-en un et installez-le sur votre reseau." />
+          ) : (
+            <div className="card">
+              <table className="table">
+                <thead>
+                  <tr><th>Statut</th><th>Nom</th><th>Site</th><th>PoP assigne</th><th>Token</th><th>Dernier contact</th><th>Actions</th></tr>
+                </thead>
+                <tbody>
+                  {connectors.map(conn => (
+                    <tr key={conn.id}>
+                      <td><StatusDot status={conn.status} /></td>
+                      <td className="cell-bold">{conn.name}</td>
+                      <td>{conn.site_name}</td>
+                      <td>{pops.find(p => p.id === conn.assigned_pop_id)?.name || '-'}</td>
+                      <td className="mono" style={{ fontSize: 10 }}>{conn.token ? conn.token.slice(0, 16) + '...' : '-'}</td>
+                      <td className="cell-muted">{timeAgo(conn.last_seen)}</td>
+                      <td>
+                        <button 
+                          className="btn btn-small" 
+                          onClick={() => { setCreatedConnector(conn); setStep('install'); }}
+                          title="Voir les instructions d'installation"
+                        >
+                          📋 Instructions
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }

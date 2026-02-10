@@ -33,16 +33,15 @@ services:
       - DB_USER=ztna
       - DB_PASS=ztna-secret
       - DB_NAME=ztna_sovereign
-    command: >
-      ztna-api
-        --db-host=postgres
-        --db-port=5432
-        --db-user=ztna
-        --db-pass=ztna-secret
-        --db-name=ztna_sovereign
-        --jwt-secret=dev-secret-change-in-production
-        --host=0.0.0.0
-        --port=8080
+    command:
+      - --db-host=postgres
+      - --db-port=5432
+      - --db-user=ztna
+      - --db-pass=ztna-secret
+      - --db-name=ztna_sovereign
+      - --jwt-secret=dev-secret-change-in-production
+      - --host=0.0.0.0
+      - --port=8080
 
   dashboard:
     build:
@@ -52,6 +51,8 @@ services:
       - "3000:80"
     depends_on:
       - api
+    environment:
+      - VITE_API_URL=http://localhost:8080
 
 volumes:
   pgdata:
