@@ -873,70 +873,101 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
             <EmptyState message="Aucun connecteur. Creez-en un et installez-le sur votre reseau." />
           ) : (
             <div className="card">
-              <table className="table">
-                <thead>
-                  <tr><th>Statut</th><th>Nom</th><th>Site</th><th>PoP assigne</th><th>Token</th><th>Dernier contact</th><th>Actions</th></tr>
-                </thead>
-                <tbody>
-                  {connectors.map(conn => (
-                    <React.Fragment key={conn.id}>
-                      <tr>
-                        <td><StatusDot status={conn.status} /></td>
-                        <td className="cell-bold">{conn.name}</td>
-                        <td>{conn.site_name}</td>
-                        <td>{pops.find(p => p.id === conn.assigned_pop_id)?.name || '-'}</td>
-                        <td className="mono" style={{ fontSize: 10 }}>{conn.token ? conn.token.slice(0, 16) + '...' : '-'}</td>
-                        <td className="cell-muted">{timeAgo(conn.last_seen)}</td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 8 }}>
-                            <button 
-                              className="btn btn-small" 
-                              onClick={() => handleShowInstructions(conn)}
-                              title="Voir les instructions d'installation"
-                            >
-                              📋 Instructions
-                            </button>
-                            <button 
-                              className="btn btn-small" 
-                              onClick={() => handleDeleteConnector(conn.id)}
-                              title="Supprimer le connecteur"
-                              style={{ background: 'var(--accent-red)', color: 'white' }}
-                            >
-                              🗑️ Supprimer
-                            </button>
+              <div className="stats-grid">
+                {connectors.map(conn => {
+                  const isOnline = conn.status === 'online';
+                  const lastSeenDate = conn.last_seen ? new Date(conn.last_seen) : null;
+                  const isRecent = lastSeenDate && (Date.now() - lastSeenDate.getTime()) < 60000; // < 1 min
+                  return (
+                    <div key={conn.id} className="card" style={{ padding: 20 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          <StatusDot status={conn.status} />
+                          <div>
+                            <h3 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>{conn.name}</h3>
+                            <p style={{ fontSize: 12, color: 'var(--text-muted)', margin: '2px 0 0 0' }}>{conn.site_name}</p>
                           </div>
-                        </td>
-                      </tr>
-                      {conn.token && !conn.token_used && (
-                        <tr>
-                          <td colSpan="7" style={{ padding: '12px 16px', background: 'rgba(59, 130, 246, 0.05)', borderTop: 'none' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                              <span style={{ fontSize: 12, color: 'var(--accent-orange)', fontWeight: 600 }}>
-                                {conn.status === 'online' ? '✅ Connecté — ' : '⏳ En attente de connexion — '}
-                                Lancez cette commande sur le serveur du site :
-                              </span>
-                            </div>
-                            <div className="code-block" style={{ position: 'relative', margin: 0 }}>
-                              <button 
-                                onClick={() => copyToClipboard(`sudo ./ztna-connector \\\n  --token ${conn.token} \\\n  --control-plane http://${controlPlaneIP}:8080 \\\n  --networks ${conn.networks?.join(',') || ''}`)}
-                                style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
-                              >
-                                Copier
-                              </button>
-                              <code>
-                                sudo ./ztna-connector \<br />
-                                &nbsp;&nbsp;--token <span style={{ color: 'var(--accent-orange)', fontWeight: 600 }}>{conn.token}</span> \<br />
-                                &nbsp;&nbsp;--control-plane http://<span style={{ color: 'var(--accent-blue)' }}>{controlPlaneIP}</span>:8080 \<br />
-                                &nbsp;&nbsp;--networks <span style={{ color: 'var(--accent-green)' }}>{conn.networks?.join(',') || ''}</span>
-                              </code>
-                            </div>
-                          </td>
-                        </tr>
+                        </div>
+                        <StatusBadge status={conn.status} />
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', marginBottom: 16 }}>
+                        <InfoRow label="PoP assigné" value={pops.find(p => p.id === conn.assigned_pop_id)?.name || '-'} />
+                        <InfoRow label="Dernier contact" value={timeAgo(conn.last_seen)} />
+                        <InfoRow label="Réseaux" value={conn.networks?.join(', ') || '-'} mono />
+                        <InfoRow label="Token utilisé" value={conn.token_used ? '✅ Oui' : '❌ Non'} />
+                      </div>
+
+                      {/* Indicateur de connexion */}
+                      {isOnline && isRecent ? (
+                        <div style={{ padding: 10, background: 'rgba(34, 197, 94, 0.1)', border: '1px solid rgba(34, 197, 94, 0.3)', borderRadius: 8, marginBottom: 12 }}>
+                          <p style={{ fontSize: 12, color: '#22c55e', margin: 0, fontWeight: 600 }}>
+                            ✅ Connecteur connecté — Heartbeat actif (dernier : {timeAgo(conn.last_seen)})
+                          </p>
+                        </div>
+                      ) : isOnline ? (
+                        <div style={{ padding: 10, background: 'rgba(245, 158, 11, 0.1)', border: '1px solid rgba(245, 158, 11, 0.3)', borderRadius: 8, marginBottom: 12 }}>
+                          <p style={{ fontSize: 12, color: 'var(--accent-orange)', margin: 0, fontWeight: 600 }}>
+                            ⚠️ Connecteur marqué online mais dernier contact : {timeAgo(conn.last_seen)}
+                          </p>
+                        </div>
+                      ) : conn.status === 'registering' ? (
+                        <div style={{ padding: 10, background: 'rgba(59, 130, 246, 0.1)', border: '1px solid rgba(59, 130, 246, 0.3)', borderRadius: 8, marginBottom: 12 }}>
+                          <p style={{ fontSize: 12, color: 'var(--accent-blue)', margin: 0, fontWeight: 600 }}>
+                            🔄 En attente d'activation — Le connecteur n'a pas encore été lancé sur le serveur
+                          </p>
+                        </div>
+                      ) : (
+                        <div style={{ padding: 10, background: 'rgba(239, 68, 68, 0.1)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: 8, marginBottom: 12 }}>
+                          <p style={{ fontSize: 12, color: 'var(--accent-red)', margin: 0, fontWeight: 600 }}>
+                            ❌ Connecteur hors ligne — Dernier contact : {timeAgo(conn.last_seen)}
+                          </p>
+                        </div>
                       )}
-                    </React.Fragment>
-                  ))}
-                </tbody>
-              </table>
+
+                      {/* Commande de lancement si non connecté */}
+                      {conn.status !== 'online' && conn.token && (
+                        <div style={{ marginBottom: 12 }}>
+                          <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 6 }}>Lancez cette commande sur le serveur du site :</p>
+                          <div className="code-block" style={{ position: 'relative', margin: 0 }}>
+                            <button 
+                              onClick={() => copyToClipboard(`sudo ./ztna-connector \\\n  --token ${conn.token} \\\n  --control-plane http://${controlPlaneIP}:8080 \\\n  --networks ${conn.networks?.join(',') || ''}`)}
+                              style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
+                            >
+                              Copier
+                            </button>
+                            <code style={{ fontSize: 11 }}>
+                              sudo ./ztna-connector \<br />
+                              &nbsp;&nbsp;--token <span style={{ color: 'var(--accent-orange)', fontWeight: 600 }}>{conn.token}</span> \<br />
+                              &nbsp;&nbsp;--control-plane http://<span style={{ color: 'var(--accent-blue)' }}>{controlPlaneIP}</span>:8080 \<br />
+                              &nbsp;&nbsp;--networks <span style={{ color: 'var(--accent-green)' }}>{conn.networks?.join(',') || ''}</span>
+                            </code>
+                          </div>
+                        </div>
+                      )}
+
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button 
+                          className="btn btn-small" 
+                          onClick={() => handleShowInstructions(conn)}
+                          title="Voir les instructions d'installation"
+                          style={{ flex: 1 }}
+                        >
+                          📋 Instructions
+                        </button>
+                        <button 
+                          className="btn btn-small" 
+                          onClick={() => handleDeleteConnector(conn.id)}
+                          title="Supprimer le connecteur"
+                          style={{ background: 'var(--accent-red)', color: 'white' }}
+                        >
+                          🗑️ Supprimer
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           )}
         </>
