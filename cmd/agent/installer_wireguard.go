@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 )
 
 // installWireGuardAutomatically downloads and installs WireGuard automatically.
@@ -50,17 +51,29 @@ func installWireGuardAutomatically(logger *log.Logger) error {
 	file.Close()
 
 	logger.Printf("✅ Téléchargement terminé: %s", installerPath)
-	logger.Println("🔧 Lancement de l'installateur WireGuard...")
-	logger.Println("   ⚠️  Une fenêtre d'installation va s'ouvrir. Suivez les instructions.")
-	logger.Println("   ⚠️  Vous devrez peut-être accepter l'élévation de privilèges (UAC).")
+	logger.Println("🔧 Lancement de l'installateur WireGuard avec élévation...")
+	logger.Println("   ⚠️  Une fenêtre UAC va s'ouvrir. Acceptez l'élévation pour continuer.")
 
-	// Run installer (silent mode)
-	cmd := exec.Command(installerPath, "/S")
+	// Use PowerShell to run installer with elevation (RunAs)
+	// This will automatically prompt for UAC
+	psScript := fmt.Sprintf(`Start-Process -FilePath "%s" -ArgumentList "/S" -Verb RunAs -Wait`, installerPath)
+	cmd := exec.Command("powershell", "-Command", psScript)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("erreur lors de l'installation: %w", err)
+		// Cleanup on error
+		os.Remove(installerPath)
+		return fmt.Errorf("erreur lors de l'installation: %w (avez-vous accepté l'élévation UAC ?)", err)
+	}
+
+	// Wait a bit for installation to complete
+	time.Sleep(2 * time.Second)
+
+	// Verify installation
+	if !isWireGuardInstalled() {
+		os.Remove(installerPath)
+		return fmt.Errorf("WireGuard installé mais non détecté. Redémarrez l'agent.")
 	}
 
 	// Cleanup
