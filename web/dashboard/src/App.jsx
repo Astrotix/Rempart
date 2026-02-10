@@ -788,19 +788,23 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
           </div>
 
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>2. Vérifier la version de Go</h4>
+            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>2. Activer Go 1.23 dans la session actuelle</h4>
             <div className="code-block" style={{ position: 'relative' }}>
               <button 
-                onClick={() => copyToClipboard(`go version`)}
+                onClick={() => copyToClipboard(`export PATH=$PATH:/usr/local/go/bin\ngo version`)}
                 style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
               >
                 Copier
               </button>
               <code>
+                export PATH=$PATH:/usr/local/go/bin<br />
                 go version<br />
                 # Doit afficher go version go1.23.x ou supérieur
               </code>
             </div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
+              <strong>Important :</strong> Si vous avez déjà exécuté les commandes précédentes dans ce terminal, vous devez exécuter <code>export PATH=$PATH:/usr/local/go/bin</code> pour activer Go 1.23 dans la session actuelle. Sinon, ouvrez un nouveau terminal.
+            </p>
           </div>
 
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
