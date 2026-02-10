@@ -379,7 +379,8 @@ func (db *DB) GetSiteConnectorByToken(ctx context.Context, token string) (*SiteC
 // ListSiteConnectors retrieves all site connectors.
 func (db *DB) ListSiteConnectors(ctx context.Context) ([]SiteConnector, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, name, site_name, assigned_pop_id, status, last_seen, created_at FROM site_connectors ORDER BY created_at DESC`,
+		`SELECT id, name, site_name, token, token_used, token_expiry, public_key, assigned_pop_id, networks, status, last_seen, created_at
+		 FROM site_connectors ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -389,9 +390,12 @@ func (db *DB) ListSiteConnectors(ctx context.Context) ([]SiteConnector, error) {
 	var connectors []SiteConnector
 	for rows.Next() {
 		var c SiteConnector
-		if err := rows.Scan(&c.ID, &c.Name, &c.SiteName, &c.AssignedPoPID, &c.Status, &c.LastSeen, &c.CreatedAt); err != nil {
+		var networksJSON []byte
+		if err := rows.Scan(&c.ID, &c.Name, &c.SiteName, &c.Token, &c.TokenUsed, &c.TokenExpiry,
+			&c.PublicKey, &c.AssignedPoPID, &networksJSON, &c.Status, &c.LastSeen, &c.CreatedAt); err != nil {
 			return nil, err
 		}
+		json.Unmarshal(networksJSON, &c.Networks)
 		connectors = append(connectors, c)
 	}
 	return connectors, nil
