@@ -788,82 +788,26 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
           </div>
 
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>2. Diagnostic : Vérifier l'installation de Go</h4>
+            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>2. Cloner et compiler le connecteur</h4>
             <div className="code-block" style={{ position: 'relative' }}>
               <button 
-                onClick={() => copyToClipboard(`# Vérifier quelle version de Go est utilisée\ngo version\n# Vérifier où se trouve le binaire go\nwhich go\n# Vérifier si Go 1.23 est installé dans /usr/local/go\n/usr/local/go/bin/go version 2>/dev/null || echo "Go 1.23 non trouvé dans /usr/local/go"\n# Vérifier le PATH actuel\necho $PATH`)}
+                onClick={() => copyToClipboard(`export PATH=/usr/local/go/bin:$PATH\ngit clone https://github.com/Astrotix/Rempart.git\ncd Rempart\ngo mod tidy\ngo build -o ztna-connector ./cmd/connector`)}
                 style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
               >
                 Copier
               </button>
               <code>
-                # Vérifier quelle version de Go est utilisée<br />
-                go version<br />
-                # Vérifier où se trouve le binaire go<br />
-                which go<br />
-                # Vérifier si Go 1.23 est installé dans /usr/local/go<br />
-                /usr/local/go/bin/go version 2>/dev/null || echo "Go 1.23 non trouvé"<br />
-                # Vérifier le PATH actuel<br />
-                echo $PATH
-              </code>
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
-              <strong>Interprétation :</strong> Si <code>which go</code> affiche <code>/usr/bin/go</code> au lieu de <code>/usr/local/go/bin/go</code>, c'est que l'ancienne version est prioritaire dans le PATH.
-            </p>
-          </div>
-
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>3. Solution : Activer Go 1.23 dans la session actuelle</h4>
-            <div className="code-block" style={{ position: 'relative' }}>
-              <button 
-                onClick={() => copyToClipboard(`# Méthode 1 : Ajouter /usr/local/go/bin au début du PATH (prioritaire)\nexport PATH=/usr/local/go/bin:$PATH\ngo version\n# Doit afficher go1.23.x\n\n# Méthode 2 : Utiliser directement le chemin complet\n/usr/local/go/bin/go version`)}
-                style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
-              >
-                Copier
-              </button>
-              <code>
-                # Méthode 1 : Ajouter /usr/local/go/bin au début du PATH (prioritaire)<br />
                 export PATH=/usr/local/go/bin:$PATH<br />
-                go version<br />
-                # Doit afficher go1.23.x<br />
-                <br />
-                # Méthode 2 : Utiliser directement le chemin complet<br />
-                /usr/local/go/bin/go version
-              </code>
-            </div>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
-              <strong>Note :</strong> La méthode 1 met <code>/usr/local/go/bin</code> <strong>avant</strong> les autres chemins, ce qui garantit que Go 1.23 sera utilisé. La méthode 2 utilise directement le binaire complet.
-            </p>
-          </div>
-
-          <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>4. Cloner et compiler le connecteur</h4>
-            <div className="code-block" style={{ position: 'relative' }}>
-              <button 
-                onClick={() => copyToClipboard(`# S'assurer que Go 1.23 est dans le PATH (si pas fait à l'étape 3)\nexport PATH=/usr/local/go/bin:$PATH\n# Vérifier la version (doit être 1.23.x)\ngo version\n# Cloner et compiler\ngit clone https://github.com/Astrotix/Rempart.git\ncd Rempart\ngo mod tidy\ngo build -o ztna-connector ./cmd/connector`)}
-                style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
-              >
-                Copier
-              </button>
-              <code>
-                # S'assurer que Go 1.23 est dans le PATH (si pas fait à l'étape 3)<br />
-                export PATH=/usr/local/go/bin:$PATH<br />
-                # Vérifier la version (doit être 1.23.x)<br />
-                go version<br />
-                # Cloner et compiler<br />
                 git clone https://github.com/Astrotix/Rempart.git<br />
                 cd Rempart<br />
                 go mod tidy<br />
                 go build -o ztna-connector ./cmd/connector
               </code>
             </div>
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 8 }}>
-              <strong>Alternative :</strong> Si <code>export PATH</code> ne fonctionne pas, utilisez directement <code>/usr/local/go/bin/go mod tidy</code> et <code>/usr/local/go/bin/go build</code>.
-            </p>
           </div>
 
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>5. Lancer le connecteur avec le token d'activation</h4>
+            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>3. Lancer le connecteur avec le token d'activation</h4>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
               Le token d'activation est unique et valable 24h. Une fois utilisé, il ne peut plus être réutilisé.
             </p>
