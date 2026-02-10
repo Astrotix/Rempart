@@ -84,12 +84,12 @@ func (s *Server) SetupRoutes() http.Handler {
 
 	protected.HandleFunc("GET /api/agent/config", s.handleGetAgentConfig)
 
-	// Apply auth middleware to protected routes
-	mux.Handle("/api/", s.JWTManager.AuthMiddleware(protected))
-	
-	// DELETE connector route - register separately to avoid ServeMux issues with method matching
+	// DELETE connector route - register BEFORE mounting sub-mux to avoid pattern matching issues
 	deleteConnectorHandler := s.JWTManager.AuthMiddleware(http.HandlerFunc(s.handleDeleteConnector))
 	mux.Handle("DELETE /api/connectors/{id}", deleteConnectorHandler)
+
+	// Apply auth middleware to protected routes
+	mux.Handle("/api/", s.JWTManager.AuthMiddleware(protected))
 
 	// Apply CORS middleware to everything
 	return corsMiddleware(mux)
