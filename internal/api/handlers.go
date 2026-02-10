@@ -73,15 +73,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	protected.HandleFunc("GET /api/connectors", s.handleListConnectors)
 	protected.HandleFunc("POST /api/connectors", s.handleCreateConnector)
 	protected.HandleFunc("GET /api/connectors/{id}/config", s.handleGetConnectorConfig)
-	protected.HandleFunc("/api/connectors/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "DELETE" {
-			s.handleDeleteConnector(w, r)
-		} else if r.Method == "GET" {
-			s.handleGetConnector(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	}))
+	protected.HandleFunc("GET /api/connectors/{id}", s.handleGetConnector)
 
 	protected.HandleFunc("GET /api/policies", s.handleListPolicies)
 	protected.HandleFunc("POST /api/policies", s.handleCreatePolicy)
@@ -94,6 +86,10 @@ func (s *Server) SetupRoutes() http.Handler {
 
 	// Apply auth middleware to protected routes
 	mux.Handle("/api/", s.JWTManager.AuthMiddleware(protected))
+	
+	// DELETE connector route - register separately to avoid ServeMux issues with method matching
+	deleteConnectorHandler := s.JWTManager.AuthMiddleware(http.HandlerFunc(s.handleDeleteConnector))
+	mux.Handle("DELETE /api/connectors/{id}", deleteConnectorHandler)
 
 	// Apply CORS middleware to everything
 	return corsMiddleware(mux)
