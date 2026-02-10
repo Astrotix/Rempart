@@ -650,6 +650,10 @@ func (s *Server) handleConnectorRegister(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Update local conn object with the new keys (conn was fetched before activation)
+	conn.PublicKey = keyPair.PublicKey
+	conn.PrivateKey = keyPair.PrivateKey
+
 	// Mark token as consumed (single-use)
 	s.Store.MarkTokenUsed(r.Context(), conn.ID)
 
