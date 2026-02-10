@@ -1030,6 +1030,67 @@ function PoliciesPage({ policies, connectors, users, onRefresh }) {
         <strong>Zero Trust :</strong> Par defaut, TOUT le trafic est bloque. Seules les politiques explicites autorisent l'acces.
       </div>
 
+      <div className="card" style={{ marginBottom: 20, background: 'rgba(59, 130, 246, 0.05)', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+        <h3 style={{ fontSize: 16, marginBottom: 12 }}>📖 Guide de test du client</h3>
+        <div style={{ fontSize: 13, lineHeight: 1.6 }}>
+          <p style={{ marginBottom: 12 }}><strong>Étape 1 : Créer un utilisateur</strong></p>
+          <p style={{ marginBottom: 8, paddingLeft: 16 }}>1. Va dans "Utilisateurs" → "+ Nouvel utilisateur"</p>
+          <p style={{ marginBottom: 8, paddingLeft: 16 }}>2. Crée un utilisateur avec email et mot de passe</p>
+
+          <p style={{ marginBottom: 12, marginTop: 16 }}><strong>Étape 2 : Créer une politique d'accès</strong></p>
+          <p style={{ marginBottom: 8, paddingLeft: 16 }}>1. Crée une politique ci-dessus :</p>
+          <ul style={{ marginLeft: 32, marginBottom: 8 }}>
+            <li><strong>Source :</strong> Sélectionne l'utilisateur créé</li>
+            <li><strong>Destination :</strong> Sélectionne le connecteur (ex: OVH)</li>
+            <li><strong>Réseaux :</strong> Ex: <code>192.168.75.0/24</code> (réseau exposé par le connecteur)</li>
+            <li><strong>Ports :</strong> Ex: <code>22,80,443</code> ou <code>*</code> pour tous</li>
+            <li><strong>Action :</strong> ALLOW</li>
+          </ul>
+
+          <p style={{ marginBottom: 12, marginTop: 16 }}><strong>Étape 3 : Obtenir le token JWT</strong></p>
+          <div className="code-block" style={{ marginBottom: 12, fontSize: 11 }}>
+            <code>
+              curl -X POST http://176.136.202.205:8080/api/auth/login \<br />
+              &nbsp;&nbsp;-H &quot;Content-Type: application/json&quot; \<br />
+              &nbsp;&nbsp;-d &apos;{`{"email": "ton-email@example.com", "password": "ton-mot-de-passe"}`}&apos;<br />
+              <br />
+              # Réponse : {`{"token": "eyJhbGc..."}`}
+            </code>
+          </div>
+
+          <p style={{ marginBottom: 12, marginTop: 16 }}><strong>Étape 4 : Compiler et lancer l'agent client</strong></p>
+          <div className="code-block" style={{ marginBottom: 12, fontSize: 11 }}>
+            <code>
+              # Sur ton poste (Windows/Mac/Linux)<br />
+              cd Rempart<br />
+              export PATH=/usr/local/go/bin:$PATH  # Si Go 1.23 installé<br />
+              go build -o ztna-agent ./cmd/agent<br />
+              <br />
+              # Lancer l&apos;agent avec le token<br />
+              sudo ./ztna-agent \<br />
+              &nbsp;&nbsp;--token &lt;TOKEN_JWT_DE_L_ETAPE_3&gt; \<br />
+              &nbsp;&nbsp;--control-plane http://176.136.202.205:8080 \<br />
+              &nbsp;&nbsp;--device &quot;Mon-PC&quot;
+            </code>
+          </div>
+
+          <p style={{ marginBottom: 12, marginTop: 16 }}><strong>Étape 5 : Tester la connexion</strong></p>
+          <p style={{ marginBottom: 8, paddingLeft: 16 }}>Une fois l'agent connecté, tu peux accéder aux ressources du site via le tunnel WireGuard :</p>
+          <div className="code-block" style={{ marginBottom: 12, fontSize: 11 }}>
+            <code>
+              # Exemple : accéder à un serveur dans le réseau 192.168.75.0/24<br />
+              ping 192.168.75.10<br />
+              ssh user@192.168.75.10<br />
+              curl http://192.168.75.10:80
+            </code>
+          </div>
+
+          <p style={{ marginBottom: 8, marginTop: 16, fontSize: 12, color: 'var(--accent-orange)', fontWeight: 600 }}>
+            ⚠️ Important : Sans politique, l'accès sera refusé (Zero Trust). Crée toujours la politique AVANT de tester !
+          </p>
+        </div>
+      </div>
+
       {showForm && (
         <div className="card form-card">
           <form onSubmit={handleCreate}>
