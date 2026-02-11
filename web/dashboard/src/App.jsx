@@ -578,6 +578,7 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
   const [loading, setLoading] = useState(false);
   const [createdConnector, setCreatedConnector] = useState(null);
   const [controlPlaneIP, setControlPlaneIP] = useState('176.136.202.205'); // IP par défaut, peut être changée
+  const [regeneratedTokenModal, setRegeneratedTokenModal] = useState(null); // { token, connector }
 
   const handleConfigure = async (e) => {
     e.preventDefault();
@@ -655,6 +656,55 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
 
   return (
     <div className="page">
+      {/* Modal nouveau token après régénération : copie exacte, pas d'alert() qui fausse I/1 et O/0 */}
+      {regeneratedTokenModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20
+        }} onClick={() => setRegeneratedTokenModal(null)}>
+          <div style={{
+            background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 24, maxWidth: 520,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+          }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ marginTop: 0, marginBottom: 12 }}>Nouveau token généré</h3>
+            <p style={{ color: 'var(--text-muted)', fontSize: 13, marginBottom: 16 }}>
+              Copiez-le avec le bouton ci-dessous pour éviter les erreurs (I/1, O/0). Il ne sera plus affiché après fermeture.
+            </p>
+            <pre style={{
+              fontFamily: 'ui-monospace, monospace', fontSize: 14, letterSpacing: '0.05em', padding: 12, background: 'var(--bg)', borderRadius: 8,
+              overflow: 'auto', marginBottom: 16, wordBreak: 'break-all'
+            }}>
+              {regeneratedTokenModal.token}
+            </pre>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              <button
+                type="button"
+                className="btn btn-primary"
+                onClick={async () => {
+                  await copyToClipboard(regeneratedTokenModal.token);
+                }}
+              >
+                📋 Copier le token
+              </button>
+              <button
+                type="button"
+                className="btn"
+                style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}
+                onClick={async () => {
+                  const cmd = `sudo ./ztna-connector --token "${regeneratedTokenModal.token}" --control-plane http://${controlPlaneIP}:8080 --networks ${(regeneratedTokenModal.connector?.networks || ['192.168.75.0/24']).join(',')}`;
+                  await copyToClipboard(cmd);
+                }}
+              >
+                📋 Copier la commande
+              </button>
+              <button type="button" className="btn" onClick={() => setRegeneratedTokenModal(null)}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="page-header">
         <h2>Connecteurs Site ({connectors.length})</h2>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -1011,7 +1061,7 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
                             if (!confirm('Régénérer le token d\'activation ? Le token actuel ne fonctionnera plus.')) return;
                             try {
                               const updated = await api.regenerateConnectorToken(conn.id);
-                              alert(`Nouveau token généré : ${updated.token}\n\nCopiez-le maintenant, il ne sera affiché qu'une seule fois !`);
+                              setRegeneratedTokenModal({ token: updated.token, connector: conn });
                               loadConnectors();
                             } catch (err) {
                               alert('Erreur : ' + err.message);

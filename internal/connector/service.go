@@ -206,6 +206,15 @@ func (s *Service) setupWireGuard() error {
 		return fmt.Errorf("failed to write WG config: %w", err)
 	}
 
+	// If interface already exists (e.g. previous run), bring it down first so wg-quick up can succeed
+	downCmd := exec.Command("wg-quick", "down", s.config.WGInterface)
+	if output, err := downCmd.CombinedOutput(); err != nil {
+		// Ignore error: interface may not exist yet
+		s.logger.Printf("wg-quick down %s (optional): %s", s.config.WGInterface, string(output))
+	} else {
+		s.logger.Printf("wg-quick down %s: interface removed, will bring up with new config", s.config.WGInterface)
+	}
+
 	// Bring up the interface using wg-quick
 	cmd := exec.Command("wg-quick", "up", s.config.WGInterface)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -226,6 +235,31 @@ func (s *Service) enableForwarding() error {
 	cmd := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to enable IP forwarding: %s: %w", string(output), err)
+	}
+
+	// Add iptables FORWARD ACCEPT rules so tunnel traffic can reach local networks
+	// (default FORWARD policy is often DROP; LOG alone doesn't accept)
+	for _, network := range s.config.Networks {
+		// Allow: tunnel (100.64.x.x) -> site network
+		checkCmd := exec.Command("iptables", "-C", "FORWARD", "-s", "100.64.0.0/16", "-d", network, "-j", "ACCEPT")
+		if checkCmd.Run() != nil {
+			cmd := exec.Command("iptables", "-A", "FORWARD", "-s", "100.64.0.0/16", "-d", network, "-j", "ACCEPT")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				s.logger.Printf("WARNING: iptables FORWARD ACCEPT failed (-> %s): %s", network, string(output))
+			} else {
+				s.logger.Printf("iptables FORWARD ACCEPT: 100.64.0.0/16 -> %s", network)
+			}
+		}
+		// Allow: site network -> tunnel (return traffic)
+		checkCmd = exec.Command("iptables", "-C", "FORWARD", "-s", network, "-d", "100.64.0.0/16", "-j", "ACCEPT")
+		if checkCmd.Run() != nil {
+			cmd := exec.Command("iptables", "-A", "FORWARD", "-s", network, "-d", "100.64.0.0/16", "-j", "ACCEPT")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				s.logger.Printf("WARNING: iptables FORWARD ACCEPT failed (%s -> tunnel): %s", network, string(output))
+			} else {
+				s.logger.Printf("iptables FORWARD ACCEPT: %s -> 100.64.0.0/16", network)
+			}
+		}
 	}
 
 	// Add iptables rules for NAT/masquerade

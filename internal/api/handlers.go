@@ -767,6 +767,13 @@ func (s *Server) handleConnectorRegister(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// Trim token in case of copy-paste spaces/newlines
+	req.Token = strings.TrimSpace(req.Token)
+	if req.Token == "" {
+		jsonError(w, http.StatusBadRequest, "Token vide")
+		return
+	}
+
 	tokenPreview := req.Token
 	if len(tokenPreview) > 16 {
 		tokenPreview = tokenPreview[:16] + "..."
