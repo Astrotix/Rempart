@@ -499,7 +499,8 @@ func (s *Server) handleGetPoP(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusNotFound, "PoP non trouve")
 		return
 	}
-	pop.PrivateKey = ""
+	// Include private key for PoP service to load its keys
+	// (PoP needs its private key to configure WireGuard)
 	jsonResponse(w, http.StatusOK, pop)
 }
 
