@@ -164,12 +164,18 @@ func (s *Service) RemovePeer(publicKey string) error {
 
 // heartbeatLoop sends periodic heartbeats to the Control Plane.
 func (s *Service) heartbeatLoop() {
+	// Send immediate heartbeat on startup
+	s.logger.Printf("Sending initial heartbeat to Control Plane...")
+	s.sendHeartbeat()
+
+	// Then send periodic heartbeats
 	ticker := time.NewTicker(time.Duration(s.config.HeartbeatSec) * time.Second)
 	defer ticker.Stop()
 
 	for s.running {
 		select {
 		case <-ticker.C:
+			s.logger.Printf("Sending periodic heartbeat...")
 			s.sendHeartbeat()
 		}
 	}
@@ -186,6 +192,7 @@ func (s *Service) sendHeartbeat() {
 	}
 
 	url := fmt.Sprintf("%s/api/pop/heartbeat", s.config.ControlPlaneURL)
+	s.logger.Printf("POST %s (PoPID: %s)", url, metrics.PoPID)
 	resp, err := http.Post(url, "application/json", bytes.NewReader(data))
 	if err != nil {
 		s.logger.Printf("Heartbeat failed: %v", err)
@@ -195,6 +202,8 @@ func (s *Service) sendHeartbeat() {
 
 	if resp.StatusCode != http.StatusOK {
 		s.logger.Printf("Heartbeat returned status %d", resp.StatusCode)
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		s.logger.Printf("Response body: %s", string(bodyBytes))
 		return
 	}
 
