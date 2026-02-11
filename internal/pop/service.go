@@ -76,7 +76,13 @@ func (s *Service) Start() error {
 		s.logger.Printf("WARNING: WireGuard setup failed: %v (continuing without WG)", err)
 		// If interface exists, try to configure it anyway
 		if runtime.GOOS == "linux" {
-			s.logger.Printf("WireGuard interface %s already exists, will use existing interface", s.config.WGInterface)
+			s.logger.Printf("WireGuard interface %s already exists, configuring keys on existing interface", s.config.WGInterface)
+			// Configure keys on existing interface
+			if err := s.configureWireGuardKeys(); err != nil {
+				s.logger.Printf("WARNING: Failed to configure keys on existing interface: %v", err)
+			} else {
+				s.logger.Printf("Keys configured on existing WireGuard interface")
+			}
 		}
 	}
 
@@ -122,6 +128,29 @@ func (s *Service) setupWireGuard() error {
 	}
 
 	s.logger.Printf("WireGuard interface %s configured on port %d", s.config.WGInterface, s.config.WGPort)
+	return nil
+}
+
+// configureWireGuardKeys configures WireGuard keys on an existing interface.
+func (s *Service) configureWireGuardKeys() error {
+	if runtime.GOOS != "linux" {
+		return nil
+	}
+
+	// Set private key
+	cmd := exec.Command("wg", "set", s.config.WGInterface, "private-key", "/dev/stdin")
+	cmd.Stdin = strings.NewReader(s.privateKey)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set private key: %s: %w", string(output), err)
+	}
+
+	// Set listen port
+	cmd = exec.Command("wg", "set", s.config.WGInterface, "listen-port", fmt.Sprintf("%d", s.config.WGPort))
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to set listen port: %s: %w", string(output), err)
+	}
+
+	s.logger.Printf("WireGuard keys configured on interface %s", s.config.WGInterface)
 	return nil
 }
 
