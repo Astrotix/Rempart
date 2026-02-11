@@ -502,9 +502,23 @@ func (s *Server) handleGetPoP(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusNotFound, "PoP non trouve")
 		return
 	}
-	// Include private key for PoP service to load its keys
-	// (PoP needs its private key to configure WireGuard)
+	pop.PrivateKey = ""
 	jsonResponse(w, http.StatusOK, pop)
+}
+
+// handleGetPoPKeys returns PoP keys (public endpoint for PoP service startup).
+func (s *Server) handleGetPoPKeys(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	pop, err := s.Store.GetPoP(r.Context(), id)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "PoP non trouve")
+		return
+	}
+	// Return keys for PoP service (needs private key to configure WireGuard)
+	jsonResponse(w, http.StatusOK, map[string]string{
+		"public_key":  pop.PublicKey,
+		"private_key": pop.PrivateKey,
+	})
 }
 
 func (s *Server) handlePoPHeartbeat(w http.ResponseWriter, r *http.Request) {
