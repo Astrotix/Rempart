@@ -539,6 +539,28 @@ func (db *DB) GetClientAgentsByUser(ctx context.Context, userID string) ([]Clien
 	return agents, nil
 }
 
+// ListClientAgents retrieves all registered client agents.
+func (db *DB) ListClientAgents(ctx context.Context) ([]ClientAgent, error) {
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, user_id, device_name, os, public_key, assigned_ip, last_seen, created_at
+		 FROM client_agents ORDER BY created_at DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var agents []ClientAgent
+	for rows.Next() {
+		var a ClientAgent
+		if err := rows.Scan(&a.ID, &a.UserID, &a.DeviceName, &a.OS, &a.PublicKey, &a.AssignedIP, &a.LastSeen, &a.CreatedAt); err != nil {
+			return nil, err
+		}
+		agents = append(agents, a)
+	}
+	return agents, nil
+}
+
 // --- Audit Log Repository ---
 
 // CreateAuditLog inserts a new audit log entry.

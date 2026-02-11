@@ -153,6 +153,7 @@ func (s *Service) register() error {
 
 	var result struct {
 		ConnectorID string                 `json:"connector_id"`
+		PublicKey   string                 `json:"public_key"`
 		Config      models.WireGuardConfig `json:"config"`
 		ConfigINI   string                 `json:"config_ini"`
 	}
@@ -163,9 +164,22 @@ func (s *Service) register() error {
 	s.config.ConnectorID = result.ConnectorID
 	s.wgConfig = &result.Config
 
-	// Save keys to file for reuse on restart
-	if err := s.saveKeys(*keyPair); err != nil {
-		s.logger.Printf("WARNING: failed to save keys: %v", err)
+	// Save the API-returned keys for reuse on restart
+	// The API generates the actual keypair; we must save THOSE keys (not our local ones)
+	// so on reconnection the public key matches what the API has stored
+	if result.PublicKey != "" && s.wgConfig != nil && s.wgConfig.PrivateKey != "" {
+		apiKeyPair := wireguard.KeyPair{
+			PublicKey:  result.PublicKey,
+			PrivateKey: s.wgConfig.PrivateKey,
+		}
+		if err := s.saveKeys(apiKeyPair); err != nil {
+			s.logger.Printf("WARNING: failed to save API keys: %v", err)
+		}
+		s.logger.Printf("Saved API-generated keys (pub: %s...)", result.PublicKey[:16])
+	} else {
+		if err := s.saveKeys(*keyPair); err != nil {
+			s.logger.Printf("WARNING: failed to save keys: %v", err)
+		}
 	}
 
 	s.logger.Printf("Registered with Control Plane as connector %s", s.config.ConnectorID)

@@ -420,6 +420,17 @@ func (m *MemStore) GetClientAgentsByUser(ctx context.Context, userID string) ([]
 	return agents, nil
 }
 
+func (m *MemStore) ListClientAgents(ctx context.Context) ([]ClientAgent, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	agents := make([]ClientAgent, 0, len(m.agents))
+	for _, a := range m.agents {
+		agents = append(agents, *a)
+	}
+	return agents, nil
+}
+
 // --- AuditLog ---
 
 func (m *MemStore) CreateAuditLog(ctx context.Context, log *AuditLog) error {
@@ -492,6 +503,7 @@ type DataStore interface {
 
 	CreateClientAgent(ctx context.Context, agent *ClientAgent) error
 	GetClientAgentsByUser(ctx context.Context, userID string) ([]ClientAgent, error)
+	ListClientAgents(ctx context.Context) ([]ClientAgent, error)
 
 	CreateAuditLog(ctx context.Context, log *AuditLog) error
 	ListAuditLogs(ctx context.Context, limit int) ([]AuditLog, error)

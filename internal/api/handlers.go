@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/ztna-sovereign/ztna/internal/auth"
@@ -59,7 +60,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("POST /api/connector/register", s.handleConnectorRegister)
 	mux.HandleFunc("POST /api/connector/heartbeat", s.handleConnectorHeartbeat)
 	mux.HandleFunc("POST /api/pop/heartbeat", s.handlePoPHeartbeat)
-	
+
 	// PoP key retrieval (public, no auth - PoP needs its keys to start)
 	mux.HandleFunc("GET /api/pop/{id}/keys", s.handleGetPoPKeys)
 
@@ -545,41 +546,62 @@ func (s *Server) handlePoPHeartbeat(w http.ResponseWriter, r *http.Request) {
 	var connectorPeers []models.WireGuardPeer
 	for _, conn := range allConnectors {
 		if conn.AssignedPoPID == metrics.PoPID && conn.Status == models.ConnectorStatusOnline && conn.PublicKey != "" {
-			// Build AllowedIPs: include connector tunnel IP and exposed networks
-			// WireGuard will automatically route traffic to these networks via the connector
+			// Build AllowedIPs: connector's exposed networks + connector tunnel IP
 			allowedIPs := []string{}
-
-			// Add the connector's exposed networks (e.g., 192.168.75.0/24)
-			// This tells WireGuard to route traffic to these networks through this peer
 			allowedIPs = append(allowedIPs, conn.Networks...)
 
-			// Also add the connector tunnel network (100.65.0.0/16) so we can reach the connector itself
-			// This allows the PoP to communicate with the connector's tunnel IP
+			// Don't add the whole /16, add a specific /32 for this connector
+			// to avoid AllowedIPs conflicts between multiple connectors
+			// For now we keep /16 since there's likely only one connector
 			allowedIPs = append(allowedIPs, "100.65.0.0/16")
 
 			connectorPeers = append(connectorPeers, models.WireGuardPeer{
 				PublicKey:    conn.PublicKey,
 				AllowedIPs:   allowedIPs,
-				PresharedKey: "", // PSK would be needed if configured
+				PresharedKey: "",
 			})
 		}
 	}
 
-	// Get all active user agents for this PoP (if needed)
-	// For now, we'll focus on connectors
+	// CRITICAL: Get all registered user agents and add them as peers on the PoP
+	// Without this, the PoP doesn't know about agents → WireGuard handshake fails
+	var agentPeers []models.WireGuardPeer
+	allAgents, err := s.Store.ListClientAgents(r.Context())
+	if err != nil {
+		s.Logger.Printf("Erreur listing agents pour PoP %s: %v", metrics.PoPID, err)
+	} else {
+		for _, agent := range allAgents {
+			if agent.PublicKey != "" && agent.AssignedIP != "" {
+				// Each agent gets a specific /32 AllowedIP (their tunnel IP)
+				// This allows the PoP to route return traffic back to this specific agent
+				tunnelIP := agent.AssignedIP
+				// Ensure it's a /32 if not already specified with mask
+				if !strings.Contains(tunnelIP, "/") {
+					tunnelIP = tunnelIP + "/32"
+				}
+
+				agentPeers = append(agentPeers, models.WireGuardPeer{
+					PublicKey:  agent.PublicKey,
+					AllowedIPs: []string{tunnelIP},
+				})
+			}
+		}
+	}
 
 	// Log for debugging
-	s.Logger.Printf("Heartbeat PoP %s: %d connecteurs trouves, %d peers configures", metrics.PoPID, len(allConnectors), len(connectorPeers))
-	if len(connectorPeers) > 0 {
-		for _, peer := range connectorPeers {
-			s.Logger.Printf("  - Peer: %s (AllowedIPs: %v)", peer.PublicKey[:16]+"...", peer.AllowedIPs)
-		}
+	s.Logger.Printf("Heartbeat PoP %s: %d connector peers, %d agent peers", metrics.PoPID, len(connectorPeers), len(agentPeers))
+	for _, peer := range connectorPeers {
+		s.Logger.Printf("  - Connector peer: %s (AllowedIPs: %v)", peer.PublicKey[:16]+"...", peer.AllowedIPs)
+	}
+	for _, peer := range agentPeers {
+		s.Logger.Printf("  - Agent peer: %s (AllowedIPs: %v)", peer.PublicKey[:16]+"...", peer.AllowedIPs)
 	}
 
 	// Return peer configuration to PoP
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"status":          "ok",
 		"connector_peers": connectorPeers,
+		"agent_peers":     agentPeers,
 	})
 }
 
@@ -833,6 +855,7 @@ func (s *Server) handleConnectorRegister(w http.ResponseWriter, r *http.Request)
 	s.Logger.Printf("Connecteur enregistre: %s (%s)", conn.Name, conn.ID)
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"connector_id": conn.ID,
+		"public_key":   conn.PublicKey, // Return the public key so connector can save it
 		"config":       config,
 		"config_ini":   wireguard.RenderINI(config),
 	})

@@ -155,23 +155,45 @@ func (s *Service) setupWireGuard() error {
 		return nil
 	}
 
-	// Create WireGuard interface
-	commands := [][]string{
-		{"ip", "link", "add", "dev", s.config.WGInterface, "type", "wireguard"},
-		{"wg", "set", s.config.WGInterface,
-			"listen-port", fmt.Sprintf("%d", s.config.WGPort),
-			"private-key", "/dev/stdin"},
-		{"ip", "link", "set", "up", "dev", s.config.WGInterface},
+	// Step 1: Create WireGuard interface
+	cmd := exec.Command("ip", "link", "add", "dev", s.config.WGInterface, "type", "wireguard")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ip link add failed: %s: %w", string(output), err)
 	}
 
-	for _, cmd := range commands {
-		c := exec.Command(cmd[0], cmd[1:]...)
-		if output, err := c.CombinedOutput(); err != nil {
-			return fmt.Errorf("command %v failed: %s: %w", cmd, string(output), err)
+	// Step 2: Set private key via stdin (CRITICAL: must pipe key to stdin)
+	cmd = exec.Command("wg", "set", s.config.WGInterface,
+		"listen-port", fmt.Sprintf("%d", s.config.WGPort),
+		"private-key", "/dev/stdin")
+	cmd.Stdin = strings.NewReader(s.privateKey)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("wg set failed: %s: %w", string(output), err)
+	}
+
+	// Step 3: Assign IP addresses for routing between users and connectors
+	// Users get IPs from 100.64.0.0/16, connectors from 100.65.0.0/16
+	// PoP acts as the router between both networks
+	ipAddresses := []string{
+		"100.64.0.1/16", // PoP address in user tunnel network
+		"100.65.0.1/16", // PoP address in connector tunnel network
+	}
+	for _, addr := range ipAddresses {
+		cmd = exec.Command("ip", "addr", "add", addr, "dev", s.config.WGInterface)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			// Ignore "already exists" errors
+			if !strings.Contains(string(output), "RTNETLINK answers: File exists") {
+				s.logger.Printf("WARNING: ip addr add %s failed: %s", addr, string(output))
+			}
 		}
 	}
 
-	s.logger.Printf("WireGuard interface %s configured on port %d", s.config.WGInterface, s.config.WGPort)
+	// Step 4: Bring interface up
+	cmd = exec.Command("ip", "link", "set", "up", "dev", s.config.WGInterface)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("ip link set up failed: %s: %w", string(output), err)
+	}
+
+	s.logger.Printf("WireGuard interface %s configured on port %d with IPs 100.64.0.1 + 100.65.0.1", s.config.WGInterface, s.config.WGPort)
 	return nil
 }
 
@@ -181,7 +203,7 @@ func (s *Service) configureWireGuardKeys() error {
 		return nil
 	}
 
-	// Set private key
+	// Set private key via stdin
 	cmd := exec.Command("wg", "set", s.config.WGInterface, "private-key", "/dev/stdin")
 	cmd.Stdin = strings.NewReader(s.privateKey)
 	if output, err := cmd.CombinedOutput(); err != nil {
@@ -194,7 +216,21 @@ func (s *Service) configureWireGuardKeys() error {
 		return fmt.Errorf("failed to set listen port: %s: %w", string(output), err)
 	}
 
-	s.logger.Printf("WireGuard keys configured on interface %s", s.config.WGInterface)
+	// Ensure IP addresses are assigned (critical for routing)
+	ipAddresses := []string{
+		"100.64.0.1/16", // PoP address in user tunnel network
+		"100.65.0.1/16", // PoP address in connector tunnel network
+	}
+	for _, addr := range ipAddresses {
+		cmd = exec.Command("ip", "addr", "add", addr, "dev", s.config.WGInterface)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			if !strings.Contains(string(output), "RTNETLINK answers: File exists") {
+				s.logger.Printf("WARNING: ip addr add %s failed: %s", addr, string(output))
+			}
+		}
+	}
+
+	s.logger.Printf("WireGuard keys and IPs configured on interface %s", s.config.WGInterface)
 	return nil
 }
 
@@ -205,12 +241,68 @@ func (s *Service) enableForwarding() error {
 		return nil
 	}
 
+	// Enable IP forwarding
 	cmd := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("failed to enable IP forwarding: %s: %w", string(output), err)
 	}
 
-	s.logger.Println("IP forwarding enabled for PoP routing")
+	// Add iptables FORWARD rules to allow traffic between users and connectors through wg0
+	// Allow forwarding from user network to connector network
+	forwardRules := [][]string{
+		// Users (100.64.0.0/16) → Connectors (100.65.0.0/16) and their internal networks
+		{"-A", "FORWARD", "-i", s.config.WGInterface, "-o", s.config.WGInterface, "-j", "ACCEPT"},
+		// Allow established/related return traffic
+		{"-A", "FORWARD", "-m", "state", "--state", "ESTABLISHED,RELATED", "-j", "ACCEPT"},
+	}
+
+	for _, rule := range forwardRules {
+		// Check if rule already exists
+		checkArgs := make([]string, len(rule))
+		copy(checkArgs, rule)
+		checkArgs[0] = "-C" // Change -A to -C for check
+		checkCmd := exec.Command("iptables", checkArgs...)
+		if checkCmd.Run() == nil {
+			s.logger.Printf("iptables rule already exists, skipping")
+			continue
+		}
+
+		cmd = exec.Command("iptables", rule...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			s.logger.Printf("WARNING: iptables rule %v failed: %s", rule, string(output))
+		} else {
+			s.logger.Printf("iptables rule added: %v", rule)
+		}
+	}
+
+	// MASQUERADE for traffic going to connector internal networks (e.g., 192.168.x.x)
+	// This rewrites the source IP so return traffic comes back through the PoP
+	natRules := [][]string{
+		{"-t", "nat", "-A", "POSTROUTING", "-o", s.config.WGInterface, "-s", "100.64.0.0/16", "-j", "MASQUERADE"},
+	}
+	for _, rule := range natRules {
+		checkArgs := make([]string, len(rule))
+		copy(checkArgs, rule)
+		// Replace -A with -C for check
+		for i, arg := range checkArgs {
+			if arg == "-A" {
+				checkArgs[i] = "-C"
+				break
+			}
+		}
+		checkCmd := exec.Command("iptables", checkArgs...)
+		if checkCmd.Run() == nil {
+			continue
+		}
+		cmd = exec.Command("iptables", rule...)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			s.logger.Printf("WARNING: iptables NAT rule failed: %s", string(output))
+		} else {
+			s.logger.Printf("iptables NAT rule added: %v", rule)
+		}
+	}
+
+	s.logger.Println("IP forwarding and iptables rules configured for PoP routing")
 	return nil
 }
 
@@ -310,6 +402,7 @@ func (s *Service) sendHeartbeat() {
 	var response struct {
 		Status         string                  `json:"status"`
 		ConnectorPeers []models.WireGuardPeer `json:"connector_peers"`
+		AgentPeers     []models.WireGuardPeer `json:"agent_peers"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		s.logger.Printf("Failed to parse heartbeat response: %v", err)
@@ -319,10 +412,14 @@ func (s *Service) sendHeartbeat() {
 		return
 	}
 
-	s.logger.Printf("Heartbeat response: status=%s, %d connector peers", response.Status, len(response.ConnectorPeers))
+	s.logger.Printf("Heartbeat response: status=%s, %d connector peers, %d agent peers",
+		response.Status, len(response.ConnectorPeers), len(response.AgentPeers))
 
-	// Update WireGuard peers based on Control Plane configuration
-	s.updatePeers(response.ConnectorPeers)
+	// Merge all peers (connectors + agents) and update WireGuard
+	allPeers := make([]models.WireGuardPeer, 0, len(response.ConnectorPeers)+len(response.AgentPeers))
+	allPeers = append(allPeers, response.ConnectorPeers...)
+	allPeers = append(allPeers, response.AgentPeers...)
+	s.updatePeers(allPeers)
 }
 
 // updatePeers updates WireGuard peers to match Control Plane configuration.
