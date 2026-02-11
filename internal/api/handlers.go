@@ -715,10 +715,21 @@ func (s *Server) handleConnectorRegister(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	s.Logger.Printf("Tentative enregistrement connecteur avec token: %s (longueur: %d)", req.Token[:min(16, len(req.Token))]+"...", len(req.Token))
 	conn, err := s.Store.GetSiteConnectorByToken(r.Context(), req.Token)
 	if err != nil {
+		s.Logger.Printf("Token non trouve dans la base: %v", err)
 		jsonError(w, http.StatusUnauthorized, "Token d'activation invalide")
 		return
+	}
+	s.Logger.Printf("Token trouve pour connecteur: %s (%s)", conn.Name, conn.ID)
+	
+	// Helper function for min
+	min := func(a, b int) int {
+		if a < b {
+			return a
+		}
+		return b
 	}
 
 	// Verify token is not expired
