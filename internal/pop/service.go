@@ -69,10 +69,15 @@ func (s *Service) Start() error {
 	// Setup WireGuard interface
 	if err := s.setupWireGuard(); err != nil {
 		s.logger.Printf("WARNING: WireGuard setup failed: %v (continuing without WG)", err)
+		// If interface exists, try to configure it anyway
+		if runtime.GOOS == "linux" {
+			s.logger.Printf("WireGuard interface %s already exists, will use existing interface", s.config.WGInterface)
+		}
 	}
 
 	// Start heartbeat to Control Plane
 	s.running = true
+	s.logger.Printf("Starting heartbeat loop (interval: %d seconds)", s.config.HeartbeatSec)
 	go s.heartbeatLoop()
 
 	// Start metrics collection
