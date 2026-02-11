@@ -550,6 +550,14 @@ func (s *Server) handlePoPHeartbeat(w http.ResponseWriter, r *http.Request) {
 	// Get all active user agents for this PoP (if needed)
 	// For now, we'll focus on connectors
 
+	// Log for debugging
+	s.Logger.Printf("Heartbeat PoP %s: %d connecteurs trouves, %d peers configures", metrics.PoPID, len(allConnectors), len(connectorPeers))
+	if len(connectorPeers) > 0 {
+		for _, peer := range connectorPeers {
+			s.Logger.Printf("  - Peer: %s (AllowedIPs: %v)", peer.PublicKey[:16]+"...", peer.AllowedIPs)
+		}
+	}
+
 	// Return peer configuration to PoP
 	jsonResponse(w, http.StatusOK, map[string]interface{}{
 		"status":          "ok",

@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os/exec"
@@ -198,8 +199,13 @@ func (s *Service) sendHeartbeat() {
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		s.logger.Printf("Failed to parse heartbeat response: %v", err)
+		// Read body for debugging
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		s.logger.Printf("Response body: %s", string(bodyBytes))
 		return
 	}
+
+	s.logger.Printf("Heartbeat response: status=%s, %d connector peers", response.Status, len(response.ConnectorPeers))
 
 	// Update WireGuard peers based on Control Plane configuration
 	s.updatePeers(response.ConnectorPeers)
