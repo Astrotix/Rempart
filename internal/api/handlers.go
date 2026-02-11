@@ -59,6 +59,9 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("POST /api/connector/register", s.handleConnectorRegister)
 	mux.HandleFunc("POST /api/connector/heartbeat", s.handleConnectorHeartbeat)
 	mux.HandleFunc("POST /api/pop/heartbeat", s.handlePoPHeartbeat)
+	
+	// PoP key retrieval (public, no auth - PoP needs its keys to start)
+	mux.HandleFunc("GET /api/pop/{id}/keys", s.handleGetPoPKeys)
 
 	// Agent/Connector downloads (public, no auth required)
 	mux.HandleFunc("GET /api/downloads/agent/{platform}", s.handleDownloadAgent)

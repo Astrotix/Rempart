@@ -77,10 +77,10 @@ func NewService(cfg Config, logger *log.Logger) (*Service, error) {
 
 // loadPoPKeysFromControlPlane fetches PoP keys from the Control Plane.
 func loadPoPKeysFromControlPlane(popID, controlPlaneURL string) (*models.PoP, error) {
-	url := fmt.Sprintf("%s/api/pops/%s", controlPlaneURL, popID)
+	url := fmt.Sprintf("%s/api/pop/%s/keys", controlPlaneURL, popID)
 	resp, err := http.Get(url)
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch PoP: %w", err)
+		return nil, fmt.Errorf("failed to fetch PoP keys: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -88,16 +88,22 @@ func loadPoPKeysFromControlPlane(popID, controlPlaneURL string) (*models.PoP, er
 		return nil, fmt.Errorf("Control Plane returned status %d", resp.StatusCode)
 	}
 
-	var pop models.PoP
-	if err := json.NewDecoder(resp.Body).Decode(&pop); err != nil {
-		return nil, fmt.Errorf("failed to parse PoP response: %w", err)
+	var result struct {
+		PublicKey  string `json:"public_key"`
+		PrivateKey string `json:"private_key"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to parse PoP keys response: %w", err)
 	}
 
-	if pop.PublicKey == "" || pop.PrivateKey == "" {
+	if result.PublicKey == "" || result.PrivateKey == "" {
 		return nil, fmt.Errorf("PoP has no keys in database")
 	}
 
-	return &pop, nil
+	return &models.PoP{
+		PublicKey:  result.PublicKey,
+		PrivateKey: result.PrivateKey,
+	}, nil
 }
 
 // Start begins the PoP service: configures WireGuard and starts the heartbeat loop.
