@@ -657,16 +657,28 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
     <div className="page">
       <div className="page-header">
         <h2>Connecteurs Site ({connectors.length})</h2>
-        {step === 'list' && (
-          <button className="btn btn-primary" onClick={() => setStep('configure')}>
-            + Nouveau connecteur
-          </button>
-        )}
-        {step !== 'list' && (
-          <button className="btn btn-small" onClick={handleBackToList}>
-            ← Retour à la liste
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {step === 'list' && (
+            <>
+              <button 
+                className="btn btn-small" 
+                onClick={onRefresh}
+                title="Rafraîchir la liste"
+                style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', color: 'var(--text)' }}
+              >
+                🔄 Rafraîchir
+              </button>
+              <button className="btn btn-primary" onClick={() => setStep('configure')}>
+                + Nouveau connecteur
+              </button>
+            </>
+          )}
+          {step !== 'list' && (
+            <button className="btn btn-small" onClick={handleBackToList}>
+              ← Retour à la liste
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Étape 1 : Configuration */}
@@ -780,13 +792,13 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
             <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>1. Prérequis sur le serveur du site</h4>
             <div className="code-block" style={{ position: 'relative' }}>
               <button 
-                onClick={() => copyToClipboard(`sudo apt update && sudo apt install -y wireguard git wget\n# Installer Go 1.23 (requis)\nwget -O /tmp/go1.23.linux-amd64.tar.gz https://go.dev/dl/go1.23.0.linux-amd64.tar.gz\nsudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf /tmp/go1.23.linux-amd64.tar.gz\necho 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc\nexport PATH=$PATH:/usr/local/go/bin\n# Configurer IP forwarding\nsudo sysctl -w net.ipv4.ip_forward=1\necho "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf`)}
+                onClick={() => copyToClipboard(`sudo apt update && sudo apt install -y wireguard iptables git wget\n# Installer Go 1.23 (requis)\nwget -O /tmp/go1.23.linux-amd64.tar.gz https://go.dev/dl/go1.23.0.linux-amd64.tar.gz\nsudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf /tmp/go1.23.linux-amd64.tar.gz\necho 'export PATH=$PATH:/usr/local/go/bin' >> ~/.bashrc\nexport PATH=$PATH:/usr/local/go/bin\n# Configurer IP forwarding\nsudo sysctl -w net.ipv4.ip_forward=1\necho "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf`)}
                 style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
               >
                 Copier
               </button>
               <code>
-                sudo apt update &amp;&amp; sudo apt install -y wireguard git wget<br />
+                sudo apt update &amp;&amp; sudo apt install -y wireguard iptables git wget<br />
                 # Installer Go 1.23 (requis)<br />
                 wget -O /tmp/go1.23.linux-amd64.tar.gz https://go.dev/dl/go1.23.0.linux-amd64.tar.gz<br />
                 sudo rm -rf /usr/local/go &amp;&amp; sudo tar -C /usr/local -xzf /tmp/go1.23.linux-amd64.tar.gz<br />
@@ -803,20 +815,56 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
           </div>
 
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
-            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>2. Cloner et compiler le connecteur</h4>
+            <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>2. Télécharger le connecteur</h4>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+              Téléchargez le binaire précompilé pour votre architecture :
+            </p>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <a 
+                href={`http://${controlPlaneIP}:8080/api/downloads/connector/linux`}
+                download
+                style={{ 
+                  padding: '8px 16px', 
+                  background: 'var(--accent-blue)', 
+                  color: 'white', 
+                  borderRadius: 6, 
+                  textDecoration: 'none', 
+                  fontSize: 13,
+                  fontWeight: 600
+                }}
+              >
+                📥 Linux (amd64)
+              </a>
+              <a 
+                href={`http://${controlPlaneIP}:8080/api/downloads/connector/linux-arm`}
+                download
+                style={{ 
+                  padding: '8px 16px', 
+                  background: 'var(--bg-primary)', 
+                  border: '1px solid var(--border)',
+                  color: 'var(--text-primary)', 
+                  borderRadius: 6, 
+                  textDecoration: 'none', 
+                  fontSize: 13,
+                  fontWeight: 600
+                }}
+              >
+                📥 Linux (ARM64)
+              </a>
+            </div>
+            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
+              Ou téléchargez directement depuis le serveur :
+            </p>
             <div className="code-block" style={{ position: 'relative' }}>
               <button 
-                onClick={() => copyToClipboard(`export PATH=/usr/local/go/bin:$PATH\ngit clone https://github.com/Astrotix/Rempart.git\ncd Rempart\ngo mod tidy\ngo build -o ztna-connector ./cmd/connector`)}
+                onClick={() => copyToClipboard(`curl -L http://${controlPlaneIP}:8080/api/downloads/connector/linux -o ztna-connector\nchmod +x ztna-connector`)}
                 style={{ position: 'absolute', top: 8, right: 8, padding: '4px 8px', fontSize: 11, background: 'var(--accent-blue)', border: 'none', borderRadius: 4, cursor: 'pointer', color: 'white' }}
               >
                 Copier
               </button>
               <code>
-                export PATH=/usr/local/go/bin:$PATH<br />
-                git clone https://github.com/Astrotix/Rempart.git<br />
-                cd Rempart<br />
-                go mod tidy<br />
-                go build -o ztna-connector ./cmd/connector
+                curl -L http://<span style={{ color: 'var(--accent-blue)' }}>{controlPlaneIP}</span>:8080/api/downloads/connector/linux -o ztna-connector<br />
+                chmod +x ztna-connector
               </code>
             </div>
           </div>
@@ -824,7 +872,7 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
           <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 12, padding: 20, marginBottom: 16 }}>
             <h4 style={{ fontSize: 14, fontWeight: 600, marginBottom: 12 }}>3. Lancer le connecteur avec le token d'activation</h4>
             <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>
-              Le token d'activation est unique et valable 24h. Une fois utilisé, il ne peut plus être réutilisé.
+              Le token d'activation peut être réutilisé pour redémarrer le connecteur. Les clés sont sauvegardées automatiquement.
             </p>
             {createdConnector.token ? (
               <>
@@ -956,6 +1004,23 @@ function ConnectorsPage({ connectors, pops, onRefresh }) {
                           style={{ flex: 1 }}
                         >
                           📋 Instructions
+                        </button>
+                        <button 
+                          className="btn btn-small" 
+                          onClick={async () => {
+                            if (!confirm('Régénérer le token d\'activation ? Le token actuel ne fonctionnera plus.')) return;
+                            try {
+                              const updated = await api.regenerateConnectorToken(conn.id);
+                              alert(`Nouveau token généré : ${updated.token}\n\nCopiez-le maintenant, il ne sera affiché qu'une seule fois !`);
+                              loadConnectors();
+                            } catch (err) {
+                              alert('Erreur : ' + err.message);
+                            }
+                          }}
+                          title="Régénérer le token d'activation"
+                          style={{ background: 'var(--accent-orange)', color: 'white' }}
+                        >
+                          🔄 Régénérer Token
                         </button>
                         <button 
                           className="btn btn-small" 

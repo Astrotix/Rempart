@@ -188,6 +188,69 @@ func (s *Service) sendHeartbeat() {
 
 	if resp.StatusCode != http.StatusOK {
 		s.logger.Printf("Heartbeat returned status %d", resp.StatusCode)
+		return
+	}
+
+	// Parse response to get peer configuration
+	var response struct {
+		Status         string                  `json:"status"`
+		ConnectorPeers []models.WireGuardPeer `json:"connector_peers"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
+		s.logger.Printf("Failed to parse heartbeat response: %v", err)
+		return
+	}
+
+	// Update WireGuard peers based on Control Plane configuration
+	s.updatePeers(response.ConnectorPeers)
+}
+
+// updatePeers updates WireGuard peers to match Control Plane configuration.
+func (s *Service) updatePeers(desiredPeers []models.WireGuardPeer) {
+	// Get current peers from WireGuard
+	currentPeers := make(map[string]bool)
+	if runtime.GOOS == "linux" {
+		cmd := exec.Command("wg", "show", s.config.WGInterface, "peers")
+		output, err := cmd.Output()
+		if err == nil {
+			for _, line := range bytes.Split(output, []byte("\n")) {
+				if len(line) > 0 {
+					currentPeers[string(line)] = true
+				}
+			}
+		}
+	}
+
+	// Add or update desired peers
+	desiredPeerKeys := make(map[string]bool)
+	for _, peer := range desiredPeers {
+		desiredPeerKeys[peer.PublicKey] = true
+		
+		// Check if peer already exists
+		if !currentPeers[peer.PublicKey] {
+			// Add new peer
+			if err := s.AddPeer(peer); err != nil {
+				s.logger.Printf("Failed to add peer %s: %v", peer.PublicKey[:16]+"...", err)
+			} else {
+				s.logger.Printf("Peer added: %s (AllowedIPs: %v)", peer.PublicKey[:16]+"...", peer.AllowedIPs)
+			}
+		} else {
+			// Update existing peer (WireGuard allows updating AllowedIPs)
+			if err := s.AddPeer(peer); err != nil {
+				s.logger.Printf("Failed to update peer %s: %v", peer.PublicKey[:16]+"...", err)
+			}
+		}
+	}
+
+	// Remove peers that are no longer in desired list
+	if runtime.GOOS == "linux" {
+		for peerKey := range currentPeers {
+			if !desiredPeerKeys[peerKey] {
+				// Don't remove user peers, only connector peers
+				// For now, we'll keep all peers to avoid disconnecting users
+				// In production, we'd track which peers are connectors vs users
+			}
+		}
 	}
 }
 

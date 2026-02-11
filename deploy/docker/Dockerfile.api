@@ -13,10 +13,19 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /ztna-api ./cmd/api
 
 # Cross-compile agent binaries for all platforms
 RUN mkdir -p /binaries
+# Web-based agent (no CGO needed)
 RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o /binaries/ztna-agent-windows-amd64.exe ./cmd/agent
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /binaries/ztna-agent-linux-amd64 ./cmd/agent
 RUN CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o /binaries/ztna-agent-macos-amd64 ./cmd/agent
 RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o /binaries/ztna-agent-macos-arm64 ./cmd/agent
+
+# Cross-compile connector binaries for Linux (connector runs on Linux servers)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o /binaries/ztna-connector-linux-amd64 ./cmd/connector
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o /binaries/ztna-connector-linux-arm64 ./cmd/connector
+
+# Note: agent-fyne requires CGO and Windows toolchain (mingw-w64)
+# It cannot be cross-compiled from Alpine. Compile on Windows or use a Debian-based image with mingw-w64.
+# See docs/BUILD_AGENT_FYNE.md for compilation instructions.
 
 # Runtime
 FROM alpine:3.20

@@ -4,13 +4,17 @@
 package connector
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/ztna-sovereign/ztna/internal/models"
@@ -20,19 +24,19 @@ import (
 // Config holds the site connector configuration.
 type Config struct {
 	ControlPlaneURL string   `json:"control_plane_url"`
-	Token           string   `json:"token"`            // Activation token from Control Plane
-	ConnectorID     string   `json:"connector_id"`     // Set after registration
+	Token           string   `json:"token"`        // Activation token from Control Plane
+	ConnectorID     string   `json:"connector_id"` // Set after registration
 	WGInterface     string   `json:"wg_interface"`
-	Networks        []string `json:"networks"`         // Internal networks to expose
+	Networks        []string `json:"networks"` // Internal networks to expose
 	HeartbeatSec    int      `json:"heartbeat_sec"`
 }
 
 // Service is the site connector service.
 type Service struct {
-	config    Config
-	logger    *log.Logger
-	wgConfig  *models.WireGuardConfig
-	running   bool
+	config   Config
+	logger   *log.Logger
+	wgConfig *models.WireGuardConfig
+	running  bool
 }
 
 // NewService creates a new site connector service.
@@ -74,9 +78,24 @@ func (s *Service) Start() error {
 	s.running = true
 	go s.heartbeatLoop()
 
+	// Step 5: Start traffic monitoring (optional, logs to syslog)
+	if runtime.GOOS == "linux" {
+		go s.monitorTraffic()
+	}
+
 	s.logger.Println("Site connector started successfully")
 	s.logger.Printf("Connector ID: %s", s.config.ConnectorID)
 	s.logger.Printf("Exposing networks: %v", s.config.Networks)
+	s.logger.Println("")
+	s.logger.Println("📊 Pour voir les logs de trafic :")
+	s.logger.Println("   - journalctl -k -f | grep ZTNA-CONNECTOR")
+	s.logger.Println("   - ou: tail -f /var/log/kern.log | grep ZTNA-CONNECTOR")
+	s.logger.Println("")
+	s.logger.Println("🔍 Pour vérifier que les règles iptables LOG sont actives :")
+	s.logger.Println("   sudo iptables -L FORWARD -n -v | grep LOG")
+	s.logger.Println("")
+	s.logger.Println("📈 Pour voir les statistiques WireGuard :")
+	s.logger.Println("   sudo wg show wg-connector")
 
 	return nil
 }
@@ -95,10 +114,20 @@ func (s *Service) Stop() {
 
 // register sends the activation token to the Control Plane and receives the WireGuard config.
 func (s *Service) register() error {
-	// Generate local WireGuard keys
-	keyPair, err := wireguard.GenerateKeyPair()
+	// Try to load existing keys from file (for reconnection after restart)
+	var keyPair *wireguard.KeyPair
+	savedKeys, err := s.loadKeys()
 	if err != nil {
-		return fmt.Errorf("failed to generate keys: %w", err)
+		// No existing keys - generate new ones
+		keyPair, err = wireguard.GenerateKeyPair()
+		if err != nil {
+			return fmt.Errorf("failed to generate keys: %w", err)
+		}
+		s.logger.Println("Nouvelles cles generees (premiere activation)")
+	} else {
+		// Use saved keys
+		keyPair = &savedKeys
+		s.logger.Println("Cles existantes chargees depuis le fichier")
 	}
 
 	reqBody := map[string]string{
@@ -123,9 +152,9 @@ func (s *Service) register() error {
 	}
 
 	var result struct {
-		ConnectorID string              `json:"connector_id"`
+		ConnectorID string                 `json:"connector_id"`
 		Config      models.WireGuardConfig `json:"config"`
-		ConfigINI   string              `json:"config_ini"`
+		ConfigINI   string                 `json:"config_ini"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return fmt.Errorf("failed to parse registration response: %w", err)
@@ -133,6 +162,11 @@ func (s *Service) register() error {
 
 	s.config.ConnectorID = result.ConnectorID
 	s.wgConfig = &result.Config
+
+	// Save keys to file for reuse on restart
+	if err := s.saveKeys(*keyPair); err != nil {
+		s.logger.Printf("WARNING: failed to save keys: %v", err)
+	}
 
 	s.logger.Printf("Registered with Control Plane as connector %s", s.config.ConnectorID)
 	return nil
@@ -182,15 +216,89 @@ func (s *Service) enableForwarding() error {
 
 	// Add iptables rules for NAT/masquerade
 	for _, network := range s.config.Networks {
-		cmd = exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING",
+		// Check if rule already exists before adding
+		checkCmd := exec.Command("iptables", "-t", "nat", "-C", "POSTROUTING",
+			"-s", "100.64.0.0/16", "-d", network, "-j", "MASQUERADE")
+		if checkCmd.Run() == nil {
+			s.logger.Printf("iptables NAT rule for %s already exists, skipping", network)
+			continue
+		}
+
+		cmd := exec.Command("iptables", "-t", "nat", "-A", "POSTROUTING",
 			"-s", "100.64.0.0/16", "-d", network, "-j", "MASQUERADE")
 		if output, err := cmd.CombinedOutput(); err != nil {
-			s.logger.Printf("iptables rule failed for %s: %s", network, string(output))
+			s.logger.Printf("WARNING: iptables NAT rule failed for %s: %s (error: %v)", network, string(output), err)
+		} else {
+			s.logger.Printf("iptables NAT rule added for %s", network)
+		}
+
+		// Add logging rules to track traffic
+		// Log incoming traffic from WireGuard tunnel to internal networks
+		checkCmd = exec.Command("iptables", "-C", "FORWARD",
+			"-s", "100.64.0.0/16", "-d", network,
+			"-j", "LOG", "--log-prefix", fmt.Sprintf("ZTNA-CONNECTOR[%s]: ", s.config.ConnectorID[:8]))
+		if checkCmd.Run() == nil {
+			s.logger.Printf("iptables LOG rule for %s -> %s already exists, skipping", "100.64.0.0/16", network)
+		} else {
+			cmd = exec.Command("iptables", "-A", "FORWARD",
+				"-s", "100.64.0.0/16", "-d", network,
+				"-j", "LOG", "--log-prefix", fmt.Sprintf("ZTNA-CONNECTOR[%s]: ", s.config.ConnectorID[:8]),
+				"--log-level", "4")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				s.logger.Printf("WARNING: iptables LOG rule failed for %s -> %s: %s (error: %v)", "100.64.0.0/16", network, string(output), err)
+			} else {
+				s.logger.Printf("iptables LOG rule added for %s -> %s", "100.64.0.0/16", network)
+			}
+		}
+
+		// Log return traffic from internal networks to WireGuard tunnel
+		checkCmd = exec.Command("iptables", "-C", "FORWARD",
+			"-s", network, "-d", "100.64.0.0/16",
+			"-j", "LOG", "--log-prefix", fmt.Sprintf("ZTNA-CONNECTOR[%s]: ", s.config.ConnectorID[:8]))
+		if checkCmd.Run() == nil {
+			s.logger.Printf("iptables LOG rule for %s -> %s already exists, skipping", network, "100.64.0.0/16")
+		} else {
+			cmd = exec.Command("iptables", "-A", "FORWARD",
+				"-s", network, "-d", "100.64.0.0/16",
+				"-j", "LOG", "--log-prefix", fmt.Sprintf("ZTNA-CONNECTOR[%s]: ", s.config.ConnectorID[:8]),
+				"--log-level", "4")
+			if output, err := cmd.CombinedOutput(); err != nil {
+				s.logger.Printf("WARNING: iptables LOG rule failed for %s -> %s: %s (error: %v)", network, "100.64.0.0/16", string(output), err)
+			} else {
+				s.logger.Printf("iptables LOG rule added for %s -> %s", network, "100.64.0.0/16")
+			}
 		}
 	}
 
 	s.logger.Println("IP forwarding and NAT rules configured")
+	s.logger.Println("Traffic logging enabled - check /var/log/kern.log or journalctl -k for ZTNA-CONNECTOR logs")
 	return nil
+}
+
+// monitorTraffic monitors iptables logs and displays them in real-time.
+func (s *Service) monitorTraffic() {
+	// Try journalctl if available (systemd)
+	cmd := exec.Command("journalctl", "-k", "-f", "--no-pager")
+	cmd.Stderr = nil // Suppress errors if journalctl not available
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return // Can't monitor, that's OK
+	}
+
+	if err := cmd.Start(); err != nil {
+		return // Can't monitor, that's OK
+	}
+	defer cmd.Process.Kill()
+
+	scanner := bufio.NewScanner(stdout)
+	for s.running && scanner.Scan() {
+		line := scanner.Text()
+		if strings.Contains(line, "ZTNA-CONNECTOR") {
+			// Parse and format the log line
+			s.logger.Printf("🔍 TRAFIC: %s", line)
+		}
+	}
 }
 
 // heartbeatLoop sends periodic heartbeats to the Control Plane.
@@ -227,4 +335,51 @@ func writeFile(path, content string) error {
 	cmd := exec.Command("tee", path)
 	cmd.Stdin = bytes.NewReader([]byte(content))
 	return cmd.Run()
+}
+
+// getKeysPath returns the path to the saved keys file.
+func (s *Service) getKeysPath() string {
+	// Save in /etc/ztna/ or current directory if not writable
+	paths := []string{
+		"/etc/ztna/connector-keys.json",
+		"./connector-keys.json",
+	}
+	for _, p := range paths {
+		dir := filepath.Dir(p)
+		if err := os.MkdirAll(dir, 0700); err == nil {
+			return p
+		}
+	}
+	return "./connector-keys.json"
+}
+
+// saveKeys saves the WireGuard keys to a file for reuse on restart.
+func (s *Service) saveKeys(keyPair wireguard.KeyPair) error {
+	keysPath := s.getKeysPath()
+	keysData := map[string]string{
+		"public_key":  keyPair.PublicKey,
+		"private_key": keyPair.PrivateKey,
+	}
+	data, err := json.Marshal(keysData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal keys: %w", err)
+	}
+	return os.WriteFile(keysPath, data, 0600)
+}
+
+// loadKeys loads saved WireGuard keys from file.
+func (s *Service) loadKeys() (wireguard.KeyPair, error) {
+	keysPath := s.getKeysPath()
+	data, err := os.ReadFile(keysPath)
+	if err != nil {
+		return wireguard.KeyPair{}, fmt.Errorf("no saved keys found: %w", err)
+	}
+	var keysData map[string]string
+	if err := json.Unmarshal(data, &keysData); err != nil {
+		return wireguard.KeyPair{}, fmt.Errorf("failed to parse keys file: %w", err)
+	}
+	return wireguard.KeyPair{
+		PublicKey:  keysData["public_key"],
+		PrivateKey: keysData["private_key"],
+	}, nil
 }

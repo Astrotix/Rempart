@@ -179,7 +179,23 @@ func (cg *ConfigGenerator) GeneratePoPConfig(pop *models.PoP, userPeers []models
 }
 
 // GenerateClientConfig generates a WireGuard config for a client agent.
-func (cg *ConfigGenerator) GenerateClientConfig(agent *models.ClientAgent, pop *models.PoP, psk string) *models.WireGuardConfig {
+// connectorNetworks: list of CIDR networks from connectors the user is allowed to access (e.g. ["192.168.1.0/24", "10.0.0.0/8"])
+func (cg *ConfigGenerator) GenerateClientConfig(agent *models.ClientAgent, pop *models.PoP, psk string, connectorNetworks []string) *models.WireGuardConfig {
+	// Default: only route traffic to connector networks (ZTNA principle)
+	// Always include the connector tunnel network so we can reach connectors
+	allowedIPs := []string{cg.ConnectorNetwork} // 100.65.0.0/16
+	
+	// Add specific connector networks if provided
+	allowedIPs = append(allowedIPs, connectorNetworks...)
+	
+	// If no connector networks specified, only route connector tunnel network
+	// This preserves local network access (true ZTNA: only route authorized resources)
+	if len(connectorNetworks) == 0 {
+		// Only route connector tunnel network, not internet traffic
+		// This is true ZTNA: only route traffic to authorized resources
+		allowedIPs = []string{cg.ConnectorNetwork} // Just 100.65.0.0/16
+	}
+	
 	return &models.WireGuardConfig{
 		PrivateKey: agent.PrivateKey,
 		Address:    agent.AssignedIP,
@@ -187,7 +203,7 @@ func (cg *ConfigGenerator) GenerateClientConfig(agent *models.ClientAgent, pop *
 		Peers: []models.WireGuardPeer{
 			{
 				PublicKey:    pop.PublicKey,
-				AllowedIPs:   []string{"0.0.0.0/0"}, // Route all traffic through tunnel
+				AllowedIPs:   allowedIPs,
 				Endpoint:     fmt.Sprintf("%s:%d", pop.PublicIP, pop.WGPort),
 				PresharedKey: psk,
 				KeepAlive:    25,

@@ -94,6 +94,12 @@ const api = {
       headers: getHeaders(),
     }).then(handleResponse),
 
+  regenerateConnectorToken: (id) =>
+    fetch(`${API_BASE}/connectors/${id}/regenerate-token`, {
+      method: 'POST',
+      headers: getHeaders(),
+    }).then(handleResponse),
+
   // Policies
   listPolicies: () =>
     fetch(`${API_BASE}/policies`, { headers: getHeaders() }).then(handleResponse),

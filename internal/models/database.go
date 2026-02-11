@@ -427,6 +427,15 @@ func (db *DB) MarkTokenUsed(ctx context.Context, id string) error {
 	return err
 }
 
+// RegenerateConnectorToken generates a new activation token for an existing connector.
+func (db *DB) RegenerateConnectorToken(ctx context.Context, id string, newToken string, expiry time.Time) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE site_connectors SET token=$2, token_used=false, token_expiry=$3 WHERE id=$1`,
+		id, newToken, expiry,
+	)
+	return err
+}
+
 // DeleteSiteConnector removes a connector from the database.
 func (db *DB) DeleteSiteConnector(ctx context.Context, id string) error {
 	_, err := db.ExecContext(ctx,

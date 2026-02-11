@@ -313,6 +313,20 @@ func (m *MemStore) MarkTokenUsed(ctx context.Context, id string) error {
 	return nil
 }
 
+func (m *MemStore) RegenerateConnectorToken(ctx context.Context, id string, newToken string, expiry time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	conn, ok := m.connectors[id]
+	if !ok {
+		return fmt.Errorf("connector not found: %s", id)
+	}
+	conn.Token = newToken
+	conn.TokenUsed = false
+	conn.TokenExpiry = expiry
+	return nil
+}
+
 func (m *MemStore) DeleteSiteConnector(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -469,6 +483,7 @@ type DataStore interface {
 	UpdateSiteConnectorStatus(ctx context.Context, id string, status ConnectorStatus) error
 	ActivateSiteConnector(ctx context.Context, id, publicKey, privateKey string) error
 	MarkTokenUsed(ctx context.Context, id string) error
+	RegenerateConnectorToken(ctx context.Context, id string, newToken string, expiry time.Time) error
 	DeleteSiteConnector(ctx context.Context, id string) error
 
 	CreatePolicy(ctx context.Context, pol *Policy) error

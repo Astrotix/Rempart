@@ -60,8 +60,9 @@ func (s *Server) SetupRoutes() http.Handler {
 	mux.HandleFunc("POST /api/connector/heartbeat", s.handleConnectorHeartbeat)
 	mux.HandleFunc("POST /api/pop/heartbeat", s.handlePoPHeartbeat)
 
-	// Agent downloads (public, no auth required)
+	// Agent/Connector downloads (public, no auth required)
 	mux.HandleFunc("GET /api/downloads/agent/{platform}", s.handleDownloadAgent)
+	mux.HandleFunc("GET /api/downloads/connector/{platform}", s.handleDownloadConnector)
 	mux.HandleFunc("GET /api/downloads/list", s.handleListDownloads)
 
 	// Protected routes (JWT required)
@@ -79,6 +80,7 @@ func (s *Server) SetupRoutes() http.Handler {
 	protected.HandleFunc("GET /api/connectors", s.handleListConnectors)
 	protected.HandleFunc("POST /api/connectors", s.handleCreateConnector)
 	protected.HandleFunc("GET /api/connectors/{id}/config", s.handleGetConnectorConfig)
+	protected.HandleFunc("POST /api/connectors/{id}/regenerate-token", s.handleRegenerateConnectorToken)
 
 	protected.HandleFunc("GET /api/policies", s.handleListPolicies)
 	protected.HandleFunc("POST /api/policies", s.handleCreatePolicy)
@@ -513,7 +515,46 @@ func (s *Server) handlePoPHeartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+	// Get all connectors assigned to this PoP
+	allConnectors, err := s.Store.ListSiteConnectors(r.Context())
+	if err != nil {
+		s.Logger.Printf("Erreur listing connecteurs pour PoP %s: %v", metrics.PoPID, err)
+		jsonResponse(w, http.StatusOK, map[string]string{"status": "ok"})
+		return
+	}
+
+	// Filter connectors assigned to this PoP and that are online
+	var connectorPeers []models.WireGuardPeer
+	for _, conn := range allConnectors {
+		if conn.AssignedPoPID == metrics.PoPID && conn.Status == models.ConnectorStatusOnline && conn.PublicKey != "" {
+			// Build AllowedIPs: include connector tunnel IP and exposed networks
+			// WireGuard will automatically route traffic to these networks via the connector
+			allowedIPs := []string{}
+
+			// Add the connector's exposed networks (e.g., 192.168.75.0/24)
+			// This tells WireGuard to route traffic to these networks through this peer
+			allowedIPs = append(allowedIPs, conn.Networks...)
+
+			// Also add the connector tunnel network (100.65.0.0/16) so we can reach the connector itself
+			// This allows the PoP to communicate with the connector's tunnel IP
+			allowedIPs = append(allowedIPs, "100.65.0.0/16")
+
+			connectorPeers = append(connectorPeers, models.WireGuardPeer{
+				PublicKey:    conn.PublicKey,
+				AllowedIPs:   allowedIPs,
+				PresharedKey: "", // PSK would be needed if configured
+			})
+		}
+	}
+
+	// Get all active user agents for this PoP (if needed)
+	// For now, we'll focus on connectors
+
+	// Return peer configuration to PoP
+	jsonResponse(w, http.StatusOK, map[string]interface{}{
+		"status":          "ok",
+		"connector_peers": connectorPeers,
+	})
 }
 
 // --- Site Connectors ---
@@ -615,6 +656,47 @@ func (s *Server) handleDeleteConnector(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, http.StatusOK, map[string]string{"message": "Connecteur supprime"})
 }
 
+func (s *Server) handleRegenerateConnectorToken(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+
+	// Get connector to verify it exists
+	conn, err := s.Store.GetSiteConnector(r.Context(), id)
+	if err != nil {
+		jsonError(w, http.StatusNotFound, "Connecteur non trouve")
+		return
+	}
+
+	// Generate new token
+	newToken, err := auth.GenerateState()
+	if err != nil {
+		jsonError(w, http.StatusInternalServerError, "Erreur generation token")
+		return
+	}
+
+	// Set expiry to 24h from now
+	newExpiry := time.Now().Add(24 * time.Hour)
+
+	// Update connector with new token
+	if err := s.Store.RegenerateConnectorToken(r.Context(), id, newToken, newExpiry); err != nil {
+		jsonError(w, http.StatusInternalServerError, "Erreur regeneration token: "+err.Error())
+		return
+	}
+
+	// Get updated connector
+	conn, _ = s.Store.GetSiteConnector(r.Context(), id)
+	conn.Token = newToken // Include token in response
+
+	s.Logger.Printf("Token regenere pour connecteur %s (%s)", conn.Name, conn.ID)
+
+	s.Store.CreateAuditLog(r.Context(), &models.AuditLog{
+		Action:      "connector_token_regenerated",
+		ConnectorID: conn.ID,
+		Result:      "allowed",
+	})
+
+	jsonResponse(w, http.StatusOK, conn)
+}
+
 func (s *Server) handleConnectorRegister(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Token     string `json:"token"`
@@ -631,13 +713,6 @@ func (s *Server) handleConnectorRegister(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	// Verify token is not already used
-	if conn.TokenUsed {
-		s.Logger.Printf("SECURITE: tentative reutilisation token connecteur %s (%s)", conn.Name, conn.ID)
-		jsonError(w, http.StatusForbidden, "Token deja utilise. Generez un nouveau connecteur.")
-		return
-	}
-
 	// Verify token is not expired
 	if time.Now().After(conn.TokenExpiry) {
 		s.Logger.Printf("SECURITE: token expire pour connecteur %s (%s)", conn.Name, conn.ID)
@@ -645,23 +720,60 @@ func (s *Server) handleConnectorRegister(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	keyPair, err := wireguard.GenerateKeyPair()
-	if err != nil {
-		jsonError(w, http.StatusInternalServerError, "Erreur generation cles")
-		return
+	// Check if connector is already activated (has keys)
+	// If yes, allow re-registration with the same token (for restart/reconnection)
+	var keyPair wireguard.KeyPair
+	if conn.PublicKey != "" && conn.PrivateKey != "" {
+		// Connector already activated - check if keys match
+		if req.PublicKey == conn.PublicKey {
+			// Same keys - reuse existing keys (normal reconnection)
+			s.Logger.Printf("Re-enregistrement connecteur %s (%s) avec cles existantes", conn.Name, conn.ID)
+			keyPair.PublicKey = conn.PublicKey
+			keyPair.PrivateKey = conn.PrivateKey
+		} else {
+			// Different keys - allow regeneration if token is still valid (connector lost keys file)
+			s.Logger.Printf("Re-enregistrement connecteur %s (%s) avec nouvelles cles (fichier de cles perdu)", conn.Name, conn.ID)
+			keyPairPtr, err := wireguard.GenerateKeyPair()
+			if err != nil {
+				jsonError(w, http.StatusInternalServerError, "Erreur generation cles")
+				return
+			}
+			keyPair = *keyPairPtr
+
+			// Update keys in database
+			if err := s.Store.ActivateSiteConnector(r.Context(), conn.ID, keyPair.PublicKey, keyPair.PrivateKey); err != nil {
+				jsonError(w, http.StatusInternalServerError, "Erreur mise a jour cles")
+				return
+			}
+		}
+	} else {
+		// First activation - generate new keys
+		if conn.TokenUsed {
+			s.Logger.Printf("SECURITE: tentative activation avec token deja utilise pour connecteur %s (%s)", conn.Name, conn.ID)
+			jsonError(w, http.StatusForbidden, "Token deja utilise. Si le connecteur etait deja active, utilisez les memes cles.")
+			return
+		}
+
+		keyPairPtr, err := wireguard.GenerateKeyPair()
+		if err != nil {
+			jsonError(w, http.StatusInternalServerError, "Erreur generation cles")
+			return
+		}
+		keyPair = *keyPairPtr
+
+		if err := s.Store.ActivateSiteConnector(r.Context(), conn.ID, keyPair.PublicKey, keyPair.PrivateKey); err != nil {
+			jsonError(w, http.StatusInternalServerError, "Erreur activation connecteur")
+			return
+		}
+
+		// Mark token as consumed only on first activation
+		s.Store.MarkTokenUsed(r.Context(), conn.ID)
+		s.Logger.Printf("Premiere activation connecteur %s (%s)", conn.Name, conn.ID)
 	}
 
-	if err := s.Store.ActivateSiteConnector(r.Context(), conn.ID, keyPair.PublicKey, keyPair.PrivateKey); err != nil {
-		jsonError(w, http.StatusInternalServerError, "Erreur activation connecteur")
-		return
-	}
-
-	// Update local conn object with the new keys (conn was fetched before activation)
+	// Update local conn object with keys
 	conn.PublicKey = keyPair.PublicKey
 	conn.PrivateKey = keyPair.PrivateKey
-
-	// Mark token as consumed (single-use)
-	s.Store.MarkTokenUsed(r.Context(), conn.ID)
 
 	pop, err := s.Store.GetPoP(r.Context(), conn.AssignedPoPID)
 	if err != nil {
@@ -724,6 +836,8 @@ func (s *Server) handleCreatePolicy(w http.ResponseWriter, r *http.Request) {
 		jsonError(w, http.StatusBadRequest, "Nom de politique requis")
 		return
 	}
+
+	s.Logger.Printf("Creation politique: %s, DestNetworks: %v", pol.Name, pol.DestNetworks)
 
 	if err := s.Store.CreatePolicy(r.Context(), &pol); err != nil {
 		jsonError(w, http.StatusInternalServerError, "Erreur creation politique: "+err.Error())
@@ -820,8 +934,41 @@ func (s *Server) handleAgentRegister(w http.ResponseWriter, r *http.Request) {
 
 	var configINI string
 	if bestPoP != nil {
+		// Get user's groups (for now, empty - can be extended later)
+		groupIDs := []string{} // TODO: Get user groups from database
+
+		// Reload policies to get latest changes (policies might have been updated)
+		s.PolicyEngine.LoadPolicies(r.Context())
+
+		// Get policies for this user to extract allowed networks
+		policies := s.PolicyEngine.GetPoliciesForUser(claims.UserID, groupIDs)
+		s.Logger.Printf("Politiques trouvees pour user %s: %d", claims.UserID, len(policies))
+
+		// Collect networks from policies (DestNetworks) - this is the true ZTNA split-tunneling
+		// Only route the specific networks defined in policies, not all connector networks
+		allowedNetworks := make(map[string]bool) // Use map to avoid duplicates
+		for _, policy := range policies {
+			s.Logger.Printf("Politique: %s, Action: %s, DestNetworks: %v", policy.Name, policy.Action, policy.DestNetworks)
+			if policy.Action == models.PolicyActionAllow && len(policy.DestNetworks) > 0 {
+				// Add each network from DestNetworks (e.g., "192.168.75.0/24")
+				for _, network := range policy.DestNetworks {
+					if network != "" {
+						allowedNetworks[network] = true
+						s.Logger.Printf("Reseau autorise ajoute: %s", network)
+					}
+				}
+			}
+		}
+
+		// Convert map to slice
+		connectorNetworks := make([]string, 0, len(allowedNetworks))
+		for network := range allowedNetworks {
+			connectorNetworks = append(connectorNetworks, network)
+		}
+		s.Logger.Printf("Reseaux finaux pour split-tunneling: %v", connectorNetworks)
+
 		psk, _ := wireguard.GeneratePresharedKey()
-		config := s.ConfigGen.GenerateClientConfig(agent, bestPoP, psk)
+		config := s.ConfigGen.GenerateClientConfig(agent, bestPoP, psk, connectorNetworks)
 		configINI = wireguard.RenderINI(config)
 	}
 
@@ -902,10 +1049,21 @@ var agentPlatforms = map[string]struct {
 	ContentType string
 	DisplayName string
 }{
-	"windows": {Filename: "ztna-agent-windows-amd64.exe", ContentType: "application/octet-stream", DisplayName: "Windows (64-bit)"},
-	"linux":   {Filename: "ztna-agent-linux-amd64", ContentType: "application/octet-stream", DisplayName: "Linux (64-bit)"},
-	"macos":   {Filename: "ztna-agent-macos-amd64", ContentType: "application/octet-stream", DisplayName: "macOS Intel"},
+	"windows":   {Filename: "ztna-agent-windows-amd64.exe", ContentType: "application/octet-stream", DisplayName: "Windows (64-bit)"},
+	"linux":     {Filename: "ztna-agent-linux-amd64", ContentType: "application/octet-stream", DisplayName: "Linux (64-bit)"},
+	"macos":     {Filename: "ztna-agent-macos-amd64", ContentType: "application/octet-stream", DisplayName: "macOS Intel"},
 	"macos-arm": {Filename: "ztna-agent-macos-arm64", ContentType: "application/octet-stream", DisplayName: "macOS Apple Silicon"},
+}
+
+// --- Connector Downloads ---
+
+var connectorPlatforms = map[string]struct {
+	Filename    string
+	ContentType string
+	DisplayName string
+}{
+	"linux":     {Filename: "ztna-connector-linux-amd64", ContentType: "application/octet-stream", DisplayName: "Linux (64-bit)"},
+	"linux-arm": {Filename: "ztna-connector-linux-arm64", ContentType: "application/octet-stream", DisplayName: "Linux ARM64"},
 }
 
 func (s *Server) handleDownloadAgent(w http.ResponseWriter, r *http.Request) {
@@ -931,8 +1089,33 @@ func (s *Server) handleDownloadAgent(w http.ResponseWriter, r *http.Request) {
 	w.Write(data)
 }
 
+func (s *Server) handleDownloadConnector(w http.ResponseWriter, r *http.Request) {
+	platform := r.PathValue("platform")
+
+	info, ok := connectorPlatforms[platform]
+	if !ok {
+		jsonError(w, http.StatusBadRequest, "Plateforme inconnue. Utilisez: linux, linux-arm")
+		return
+	}
+
+	filePath := "/var/lib/ztna/downloads/" + info.Filename
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		s.Logger.Printf("Fichier connecteur introuvable: %s: %v", filePath, err)
+		jsonError(w, http.StatusNotFound, "Binaire connecteur non disponible pour cette plateforme")
+		return
+	}
+
+	w.Header().Set("Content-Type", info.ContentType)
+	w.Header().Set("Content-Disposition", "attachment; filename="+info.Filename)
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", len(data)))
+	w.Write(data)
+}
+
 func (s *Server) handleListDownloads(w http.ResponseWriter, r *http.Request) {
 	downloads := []map[string]string{}
+
+	// Agent downloads
 	for key, info := range agentPlatforms {
 		filePath := "/var/lib/ztna/downloads/" + info.Filename
 		available := "false"
@@ -942,14 +1125,36 @@ func (s *Server) handleListDownloads(w http.ResponseWriter, r *http.Request) {
 			size = fmt.Sprintf("%d", stat.Size())
 		}
 		downloads = append(downloads, map[string]string{
-			"platform":    key,
-			"name":        info.DisplayName,
-			"filename":    info.Filename,
-			"available":   available,
-			"size":        size,
+			"type":         "agent",
+			"platform":     key,
+			"name":         info.DisplayName,
+			"filename":     info.Filename,
+			"available":    available,
+			"size":         size,
 			"download_url": fmt.Sprintf("/api/downloads/agent/%s", key),
 		})
 	}
+
+	// Connector downloads
+	for key, info := range connectorPlatforms {
+		filePath := "/var/lib/ztna/downloads/" + info.Filename
+		available := "false"
+		size := "0"
+		if stat, err := os.Stat(filePath); err == nil {
+			available = "true"
+			size = fmt.Sprintf("%d", stat.Size())
+		}
+		downloads = append(downloads, map[string]string{
+			"type":         "connector",
+			"platform":     key,
+			"name":         info.DisplayName,
+			"filename":     info.Filename,
+			"available":    available,
+			"size":         size,
+			"download_url": fmt.Sprintf("/api/downloads/connector/%s", key),
+		})
+	}
+
 	jsonResponse(w, http.StatusOK, downloads)
 }
 
