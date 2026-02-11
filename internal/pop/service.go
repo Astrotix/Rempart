@@ -66,6 +66,11 @@ func NewService(cfg Config, logger *log.Logger) (*Service, error) {
 func (s *Service) Start() error {
 	s.logger.Printf("Starting PoP service (ID: %s)", s.config.PoPID)
 
+	// Enable IP forwarding for routing traffic to connectors
+	if err := s.enableForwarding(); err != nil {
+		s.logger.Printf("WARNING: Failed to enable IP forwarding: %v", err)
+	}
+
 	// Setup WireGuard interface
 	if err := s.setupWireGuard(); err != nil {
 		s.logger.Printf("WARNING: WireGuard setup failed: %v (continuing without WG)", err)
@@ -117,6 +122,22 @@ func (s *Service) setupWireGuard() error {
 	}
 
 	s.logger.Printf("WireGuard interface %s configured on port %d", s.config.WGInterface, s.config.WGPort)
+	return nil
+}
+
+// enableForwarding enables IP forwarding so the PoP can route traffic to connectors.
+func (s *Service) enableForwarding() error {
+	if runtime.GOOS != "linux" {
+		s.logger.Println("IP forwarding only configured on Linux")
+		return nil
+	}
+
+	cmd := exec.Command("sysctl", "-w", "net.ipv4.ip_forward=1")
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to enable IP forwarding: %s: %w", string(output), err)
+	}
+
+	s.logger.Println("IP forwarding enabled for PoP routing")
 	return nil
 }
 
