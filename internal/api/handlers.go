@@ -694,7 +694,19 @@ func (s *Server) handleRegenerateConnectorToken(w http.ResponseWriter, r *http.R
 	conn, _ = s.Store.GetSiteConnector(r.Context(), id)
 	conn.Token = newToken // Include token in response
 
-	s.Logger.Printf("Token regenere pour connecteur %s (%s)", conn.Name, conn.ID)
+	tokenPreview := newToken
+	if len(tokenPreview) > 16 {
+		tokenPreview = tokenPreview[:16] + "..."
+	}
+	s.Logger.Printf("Token regenere pour connecteur %s (%s): %s (longueur: %d)", conn.Name, conn.ID, tokenPreview, len(newToken))
+	
+	// Verify token was saved correctly
+	verifyConn, err := s.Store.GetSiteConnectorByToken(r.Context(), newToken)
+	if err != nil {
+		s.Logger.Printf("ERREUR: Token sauvegarde mais non retrouvable: %v", err)
+	} else {
+		s.Logger.Printf("Verification OK: Token retrouve pour connecteur %s", verifyConn.ID)
+	}
 
 	s.Store.CreateAuditLog(r.Context(), &models.AuditLog{
 		Action:      "connector_token_regenerated",
