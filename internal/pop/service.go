@@ -122,6 +122,10 @@ func (s *Service) AddPeer(peer models.WireGuardPeer) error {
 		return nil
 	}
 
+	if len(peer.AllowedIPs) == 0 {
+		return fmt.Errorf("peer has no AllowedIPs")
+	}
+
 	args := []string{"set", s.config.WGInterface,
 		"peer", peer.PublicKey,
 		"allowed-ips", joinStrings(peer.AllowedIPs, ","),
@@ -131,12 +135,14 @@ func (s *Service) AddPeer(peer models.WireGuardPeer) error {
 		args = append(args, "preshared-key", "/dev/stdin")
 	}
 
+	s.logger.Printf("Adding peer %s with AllowedIPs: %v", peer.PublicKey[:16]+"...", peer.AllowedIPs)
 	cmd := exec.Command("wg", args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
+		s.logger.Printf("ERROR: wg set peer failed: %s (error: %v)", string(output), err)
 		return fmt.Errorf("wg set peer failed: %s: %w", string(output), err)
 	}
 
-	s.logger.Printf("Peer added: %s", peer.PublicKey[:16]+"...")
+	s.logger.Printf("✓ Peer added successfully: %s (AllowedIPs: %v)", peer.PublicKey[:16]+"...", peer.AllowedIPs)
 	return nil
 }
 
