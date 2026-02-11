@@ -699,7 +699,7 @@ func (s *Server) handleRegenerateConnectorToken(w http.ResponseWriter, r *http.R
 		tokenPreview = tokenPreview[:16] + "..."
 	}
 	s.Logger.Printf("Token regenere pour connecteur %s (%s): %s (longueur: %d)", conn.Name, conn.ID, tokenPreview, len(newToken))
-	
+
 	// Verify token was saved correctly
 	verifyConn, err := s.Store.GetSiteConnectorByToken(r.Context(), newToken)
 	if err != nil {
