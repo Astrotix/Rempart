@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/ztna-sovereign/ztna/internal/models"
