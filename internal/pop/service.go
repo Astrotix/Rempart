@@ -39,10 +39,22 @@ type Service struct {
 
 // NewService creates a new PoP service.
 func NewService(cfg Config, logger *log.Logger) (*Service, error) {
-	// Generate or load WireGuard keys
-	keyPair, err := wireguard.GenerateKeyPair()
+	// Try to load keys from Control Plane first
+	var publicKey, privateKey string
+	pop, err := loadPoPKeysFromControlPlane(cfg.PoPID, cfg.ControlPlaneURL)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate WG keys: %w", err)
+		logger.Printf("WARNING: Could not load PoP keys from Control Plane: %v (will generate new keys)", err)
+		// Generate new keys if we can't load from Control Plane
+		keyPair, err := wireguard.GenerateKeyPair()
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate WG keys: %w", err)
+		}
+		publicKey = keyPair.PublicKey
+		privateKey = keyPair.PrivateKey
+	} else {
+		logger.Printf("PoP keys loaded from Control Plane")
+		publicKey = pop.PublicKey
+		privateKey = pop.PrivateKey
 	}
 
 	if cfg.WGInterface == "" {
@@ -58,9 +70,34 @@ func NewService(cfg Config, logger *log.Logger) (*Service, error) {
 	return &Service{
 		config:     cfg,
 		logger:     logger,
-		publicKey:  keyPair.PublicKey,
-		privateKey: keyPair.PrivateKey,
+		publicKey:  publicKey,
+		privateKey: privateKey,
 	}, nil
+}
+
+// loadPoPKeysFromControlPlane fetches PoP keys from the Control Plane.
+func loadPoPKeysFromControlPlane(popID, controlPlaneURL string) (*models.PoP, error) {
+	url := fmt.Sprintf("%s/api/pops/%s", controlPlaneURL, popID)
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch PoP: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("Control Plane returned status %d", resp.StatusCode)
+	}
+
+	var pop models.PoP
+	if err := json.NewDecoder(resp.Body).Decode(&pop); err != nil {
+		return nil, fmt.Errorf("failed to parse PoP response: %w", err)
+	}
+
+	if pop.PublicKey == "" || pop.PrivateKey == "" {
+		return nil, fmt.Errorf("PoP has no keys in database")
+	}
+
+	return &pop, nil
 }
 
 // Start begins the PoP service: configures WireGuard and starts the heartbeat loop.
